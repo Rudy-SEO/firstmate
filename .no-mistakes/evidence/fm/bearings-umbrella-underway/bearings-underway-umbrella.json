@@ -1,0 +1,13 @@
+{
+  "schema": "fm-bearings.v1",
+  "underway": [
+    {
+      "id": "hermes/hermes-vps-orchestration",
+      "kind": "program",
+      "state": "in_flight",
+      "repo": "hermes-vps",
+      "name": "Build BRAIN/HOST lanes on the VPS",
+      "doing": "in_flight"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "schema": "fm-secondmate-home-summary.v1",
+  "state": "active_child_work",
+  "active_children": [
+    {
+      "id": "hermes-vps-orchestration",
+      "kind": "program",
+      "state": "in_flight",
+      "repo": "hermes-vps",
+      "name": "Build BRAIN/HOST lanes on the VPS",
+      "source": "structured-summary:program-umbrella",
+      "doing": null
+    }
+  ],
+  "counts": {
+    "active_children": 1
+  }
+}

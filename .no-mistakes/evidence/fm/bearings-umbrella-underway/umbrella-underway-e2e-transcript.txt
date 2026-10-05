@@ -1,0 +1,101 @@
+=== step 1: secondmate home publishes its structured summary ledger ===
+--- home-summary.json (the home's own structured summary) ---
+{
+  "schema": "fm-secondmate-home-summary.v1",
+  "state": "active_child_work",
+  "active_children": [
+    {
+      "id": "hermes-vps-orchestration",
+      "kind": "program",
+      "state": "in_flight",
+      "repo": "hermes-vps",
+      "name": "Build BRAIN/HOST lanes on the VPS",
+      "source": "structured-summary:program-umbrella",
+      "doing": null
+    }
+  ],
+  "counts": {
+    "active_children": 1
+  }
+}
+
+=== step 2: captain runs bearings over the fleet (fm-bearings.v1 JSON) ===
+{
+  "schema": "fm-bearings.v1",
+  "underway": [
+    {
+      "id": "hermes/hermes-vps-orchestration",
+      "kind": "program",
+      "state": "in_flight",
+      "repo": "hermes-vps",
+      "name": "Build BRAIN/HOST lanes on the VPS",
+      "doing": "in_flight"
+    }
+  ]
+}
+
+=== step 3: the board surface the captain reads (TOON render) ===
+schema: fm-bearings.v1
+home: fm-umbrella-e2e.qq1RrS/captain-home
+generated: "2026-10-05T18:05:00Z"
+prs: "not_requested (run: /bearings include PRs)"
+contributions: 
+  scope: owned contributions per home
+  known: 0
+  checked: 0
+  counts: 
+    captain: 0
+    fleet: 0
+    maintainer: 0
+    nobody: 0
+  complete: true
+  proven_clear: true
+  unmeasured_homes: 0
+  unreadable_records: 0
+  unmeasured: 0
+  stale_verdicts: 0
+  missing_verdicts: 0
+  captain_omitted: 0
+  captain: []
+in_flight[1]{id,kind,state,repo,name,doing}:
+  hermes/hermes-vps-orchestration,program,in_flight,hermes-vps,Build BRAIN/HOST lanes on the VPS,in_flight
+secondmates[1]{id,state,doing,provenance,freshness,age_seconds,contradiction,reason}:
+  hermes,active_child_work,"hermes-vps-orchestration: in_flight",structured-home,fresh,300,true,"-"
+secondmate_reconcile[1]{id,spawn_gen,host,kind,ids}:
+  hermes,null,null,null,"[]"
+decisions_open: []
+landed: []
+gates[1]{id,title,blocked_by,reason,owner,filed}:
+  brain-tracker,Track BRAIN lane progress,"-","held 15d: tracker booked",hermes,null
+reports: []
+recorded_prs: []
+unhealthy_endpoints[1]{id,backend,target,exists,agent}:
+  hermes,tmux,"firstmate:fm-hermes",true,dead
+omitted[7]{surface,reveal}:
+  backlog item bodies,"--fields bodies"
+  task paths,"--fields paths"
+  watch/steer actions,"--fields actions"
+  healthy endpoint detail,"--fields endpoints"
+  full scout-report inventory,"--all-reports"
+  "captain holds bucketed blocked, dated, or aged: 1","--all-decisions"
+  live PR discovery + checks,"--include-prs"
+
+=== assertions ===
+ok - umbrella row reaches the Board Underway section by durable name and repo
+ok - provenance labels the projection structured-summary:program-umbrella
+
+=== adversarial A: non-program in-flight row must NOT project ===
+{
+  "state": "no_active_work",
+  "active_children": [],
+  "omitted": []
+}
+ok - a non-program in-flight row with no working child is never promoted to Underway
+
+=== adversarial B: parent-side event tail alone never invents an Underway row ===
+{
+  "underway": []
+}
+ok - with no structured in-flight state, the parent event tail does not mint an Underway row
+
+ALL E2E CHECKS PASSED
