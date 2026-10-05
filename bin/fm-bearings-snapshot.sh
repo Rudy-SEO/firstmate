@@ -55,7 +55,11 @@
 # object (orphan structured in-flight without meta, unstructured current rows).
 # Bearings never invents Underway rows from backlog-only ids; it discloses those
 # gaps in omitted[] and, when invalid, a Charted Next gate line so the four-section
-# chat cannot claim an empty fleet while main current state is broken.
+# chat cannot claim an empty fleet while main current state is broken. A secondmate
+# home's structured summary may itself project an in-flight program umbrella row
+# into its active_children (fm-fleet-snapshot.sh's header owns that rule and its
+# source labeling); this wrapper renders that row like any other active child
+# rather than inventing it here.
 #
 # An open away-return catch-up is disclosed the same way, as a single action-free
 # (return-catchup) gate row naming the blockers left to clear or the reason the
