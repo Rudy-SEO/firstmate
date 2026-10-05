@@ -85,7 +85,15 @@
 #     observed status file's mtime instead: freshness is how fresh this snapshot's
 #     own observation is, never when a worker emitted the event.
 #     Each structured-home record carries active_children, decisions_open, holds,
-#     queued, landed, endpoints, counts, and omitted. provenance.summary_source
+#     queued, landed, endpoints, counts, and omitted.
+#     active_children normally lists a home's working local children only. When a
+#     home has no working local child but an in-flight program-role backlog row
+#     exists, that row projects into active_children as a single Underway entry
+#     (name is its durable title, falling back to its id) with
+#     source:"structured-summary:program-umbrella", so provenance stays honest
+#     about the difference from a probed working child. This structured in-flight
+#     state is the only trigger; parent-side status-log event tails never promote
+#     a row into active_children. provenance.summary_source
 #     distinguishes "local-ledger", "remote-ledger", and "remote-ledger-cache";
 #     freshness is "cached" only for the cache source, and observed_at/age_seconds
 #     come from the selected summary's generation. Every successfully sampled home also carries
@@ -1061,6 +1069,15 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
             name:(($work.title // null) | if . == null then null else trunc(70) end),
             source:.current_state.source,
             doing:((.current_state.detail // "") | trunc(120))} ]) as $active_all
+    | ([ $owned_in_flight[]
+         | select(.current_role == "program")
+         | {id,kind,state:"in_flight",
+            repo:((.repo // null) | if . == null then null else trunc(120) end),
+            name:((if (.title // "") == "" then .id else .title end) | trunc(70)),
+            source:"structured-summary:program-umbrella",
+            doing:null} ]) as $program_umbrella_all
+    | (if ($active_all | length) == 0 then $program_umbrella_all else [] end) as $umbrella_active
+    | ($active_all + $umbrella_active) as $active_all
     | ($captain_holds_all
        + ([ $tasks[] as $t | ($t.hints.open_decisions // [])[]
             | {id:$t.id,key,verb,summary:(.summary | trunc(160)),reason:null,source:"status"} ])) as $decisions_all
