@@ -1,0 +1,10 @@
+=== host shell ===
+GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+
+=== BEFORE (base d53a81b library) under /bin/bash set -u: subshell fm_exec_timed, the fm_tasks_axi frame ===
+exit=127
+output: /var/folders/yp/3thln5vx79v797r_c__hkyph0000gn/T//fm-bashpid-probe.a9aopm/fm-timeout-lib-base.sh: line 224: BASHPID: unbound variable
+
+=== AFTER (target 66c19b2b library) same frame ===
+exit=0
+output: spawn-commit-ok

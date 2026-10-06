@@ -1,0 +1,6 @@
+=== the startup-owner test's frame-PID expansion under each PERL_ONLY fixture (bash 3.2.57) ===
+old-fixture: main=30088 /bin/bash: line 0: exec: sh: not found frame=
+new-fixture: main=30094 frame=30095
+
+old fixture (pre-change, no sh): frame expands EMPTY -> the owner-death test would pass vacuously
+new fixture (sh linked): frame is a real PID distinct from main -> the escalation is honestly exercised

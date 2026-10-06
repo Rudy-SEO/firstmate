@@ -1,0 +1,11 @@
+=== owner capture under /bin/bash 3.2.57 (subshell frame) ===
+script_dollar_dollar=22530 script_ppid=22529
+watchdog_pid=22533
+captured_owner=22530
+watchdog_alive_before_owner_death=yes
+
+VERDICT: watchdog owner == calling script $$ (22530) -- header contract preserved on bash 3.2
+
+=== owner (the script) has now exited; escalation should TERM the bounded sleep well before its 60s bound ===
+watchdog and bounded command gone after ~2s (<< 60s bound): owner-death escalation fired
+no leaked bounded command
