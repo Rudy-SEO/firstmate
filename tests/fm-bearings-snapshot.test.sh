@@ -789,6 +789,15 @@ test_contradiction_row_projects_a_sourced_gate_and_clears() {
   ' >/dev/null || fail "contradiction row did not project a sourced Charted Next gate: $json"
   pass "a contradiction=true secondmate row projects a sourced Charted Next gate"
 
+  printf '## In flight\n\n## Queued\n- [ ] dated-gate - Dated queued gate (repo: sample) (kind: ship) (since 2026-07-01)\n\n## Done\n' \
+    > "$home/data/backlog.md"
+  json=$(FM_BEARINGS_GATES=1 run "$home" "$fakebin" --json)
+  printf '%s' "$json" | jq -e '
+    (.gates | any(.[]; .id == "(contradiction:authority)"))
+      and (.gates | any(.[]; .id == "dated-gate"))
+  ' >/dev/null || fail "the gate bound truncated the reserved contradiction gate: $json"
+  pass "the contradiction gate is reserved ahead of the gate bound"
+
   rm "$home/state/authority.status"
   json=$(run "$home" "$fakebin" --json)
   printf '%s' "$json" | jq -e '
