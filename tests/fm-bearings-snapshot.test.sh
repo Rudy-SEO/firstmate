@@ -766,6 +766,38 @@ test_parent_decision_is_untrusted_contradiction_only() {
   pass "parent decisions remain untrusted contradiction evidence"
 }
 
+test_contradiction_row_projects_a_sourced_gate_and_clears() {
+  local home mate fakebin json
+  home=$(make_home contradiction-gate)
+  mate="$TMP_ROOT/contradiction-gate-home"
+  make_valid_secondmate_home authority "$mate"
+  append_secondmate_registry "$home" authority "$mate"
+  fm_write_secondmate_meta "$home/state/authority.meta" "$mate" "firstmate:fm-authority" sample
+  printf 'needs-decision [key=stale]: old parent question\n' > "$home/state/authority.status"
+  fakebin=$(make_fakebin "$home")
+  refresh_local_secondmate_ledgers "$home"
+  json=$(run "$home" "$fakebin" --json)
+  printf '%s' "$json" | jq -e '
+    (.secondmates | any(.[]; .id == "authority" and .state == "no_active_work" and .contradiction == true))
+      and (.gates | any(.[];
+        .id == "(contradiction:authority)"
+          and .owner == "authority"
+          and .filed == null
+          and (.title | test("no_active_work"))
+          and (.title | test("disagrees"))
+          and (.reason | test("evidence"))))
+  ' >/dev/null || fail "contradiction row did not project a sourced Charted Next gate: $json"
+  pass "a contradiction=true secondmate row projects a sourced Charted Next gate"
+
+  rm "$home/state/authority.status"
+  json=$(run "$home" "$fakebin" --json)
+  printf '%s' "$json" | jq -e '
+    (.secondmates | any(.[]; .id == "authority" and .contradiction == true)) == false
+      and (.gates | any(.[]; .id == "(contradiction:authority)")) == false
+  ' >/dev/null || fail "contradiction gate did not clear once structure and evidence agreed again: $json"
+  pass "the contradiction gate clears once structure and evidence agree again"
+}
+
 test_parent_evidence_reconciles_by_verb_and_key() {
   local home hold blocked decision fakebin canonical mate child
   home=$(make_home keyed-parent-evidence)
@@ -3369,6 +3401,7 @@ test_bad_secondmate_homes_never_revive_parent_work
 test_oversized_secondmate_summary_stays_strict_unknown
 test_secondmate_and_child_bounds_are_disclosed
 test_parent_decision_is_untrusted_contradiction_only
+test_contradiction_row_projects_a_sourced_gate_and_clears
 test_parent_evidence_reconciles_by_verb_and_key
 test_nonprogressing_child_states_are_explicit
 test_registry_unavailability_and_bounds_are_explicit

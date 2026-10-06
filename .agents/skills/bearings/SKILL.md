@@ -45,7 +45,7 @@ For a contribution wake or linked-issue filing, go directly to Contribution foll
    Only pass `--include-prs` when the captain asks for repository-wide live GitHub PR enrichment.
    Registered owned contributions use the cached `contributions` projection independently of that opt-in; no invocation-time forge discovery is needed to read it.
    For registered secondmates, use the snapshot's structured-home classification and provenance.
-   A parent event or bounded terminal contradiction is fallback evidence, never authority over readable structured home state.
+   A parent event or bounded terminal contradiction is fallback evidence, never authority over readable structured home state; the snapshot discloses it as a `(contradiction:<id>)` Charted Next gate alongside the home's own unchanged structured row, rather than silently reading that home idle.
    A decision is simply a task held for the captain (`captain-hold-lifecycle`), whatever its kind.
    The canonical snapshot assigns every captain hold exactly one bucket from structured fields only: `blocked` when any blocker is unresolved, else `dated` while `hold_until` is in the future, else `aged` when an undated hold has reached the configured age threshold, else `live`.
    Never use hold-reason or body prose to classify or place a decision.
@@ -105,7 +105,8 @@ Compose the payload from the same snapshot with the same ranking judgment as the
 - Decision cards carry agent-authored copy: a short noun-phrase title, one-line `about` and `decide` context rows, and option labels with hints, with the recommended option marked.
 - Card `type` (decision, merge, credential) is your composing judgment from the row's content; no backlog field types a card for you.
 - When the card's task is a captain-gated WORK item (the answer should free it to proceed rather than complete it), set the card's `close: "release"` so the answer lifts the hold instead of closing the task; question-shaped items omit it.
-- A Charted Next row's optional `kind` separates work from alarms: omit it (or set `"queued"`) for real queued work, and set `"warning"` on every action-free fleet-integrity notice - the `(main-inventory)` gate, the `(return-catchup)` gate, an unavailable secondmate home, and an inventory-mismatch repair notice. The board badges a warning row `needs repair` instead of `waiting` and leaves it out of the Charted Next count, so those rows never read as dispatchable queued work.
+- A Charted Next row's optional `kind` separates work from alarms: omit it (or set `"queued"`) for real queued work, and set `"warning"` on every action-free fleet-integrity notice - the `(main-inventory)` gate, the `(return-catchup)` gate, a `(contradiction:<id>)` gate, an unavailable secondmate home, and an inventory-mismatch repair notice. The board badges a warning row `needs repair` instead of `waiting` and leaves it out of the Charted Next count, so those rows never read as dispatchable queued work.
+- A `(contradiction:<id>)` gate names the secondmate home and its evidence source (parent-event or terminal evidence) in plain words; never word it as though the home is confirmed working, since the structured summary that still reads idle remains authoritative.
 - `charted_more` counts omitted queued rows only, while `charted_warning_more` counts omitted warning rows only; keep both counts separate whenever the board payload truncates Charted Next.
 - Every Underway row copies the task-identifying `in_flight.name` from the snapshot into an explicit `name` field, which the board leads with while keeping the run status on its second line.
   The snapshot command's header owns its durable-title-or-id normalization; never replace the projected label with run status or invent another label.

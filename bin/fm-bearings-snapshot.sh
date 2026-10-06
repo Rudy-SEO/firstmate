@@ -67,6 +67,14 @@
 # suppresses the digest; an ACTIVE away window still refuses, because the right
 # answer there is to run the return first. bin/fm-afk-return.sh owns the gate.
 #
+# When a secondmate home's row carries contradiction:true (its structured summary
+# reads idle while bounded parent-event or terminal evidence disagrees), that is
+# also disclosed the same way, as a (contradiction:<id>) gate row. The structured
+# summary stays authoritative and unblurred on the home's own secondmates[] row;
+# the gate row only names the mismatch and its evidence source, never asserts the
+# home is working as structured fact. It disappears on its own once the home's
+# structure and its evidence agree again, because gates are recomputed every run.
+#
 # The landed section merges this home's Done with the canonical snapshot's
 # secondmate_landed roll-up (fm-fleet-snapshot.sh), so merges a secondmate managed -
 # recorded in ITS OWN backlog, never the main one - are visible. It stays bounded by
@@ -576,6 +584,14 @@ MODEL=$(printf '%s' "$SNAP" | jq \
           owner:"(main)",
           filed:null}]
       else [] end)
+     + [ $secondmates_all[]
+         | select(.contradiction == true)
+         | {id:("(contradiction:" + .id + ")"),
+            title:((.state + ": parent/terminal evidence disagrees") | trunc(60)),
+            blocked_by:"-",
+            reason:"parent/terminal evidence contradicts structured state",
+            owner:.id,
+            filed:null} ]
      + [ .backlog.records[]
          | . as $record
          | select(.structured and
