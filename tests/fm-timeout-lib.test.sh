@@ -18,7 +18,7 @@ TMP_ROOT=$(fm_test_tmproot fm-timeout-lib)
 # timeout variant: fm_exec_timed must take its perl watchdog here.
 PERL_ONLY="$TMP_ROOT/perl-only-bin"
 mkdir -p "$PERL_ONLY"
-for tool in perl bash sleep; do
+for tool in perl bash sh sleep; do
   ln -s "$(command -v "$tool")" "$PERL_ONLY/$tool"
 done
 
@@ -236,7 +236,7 @@ test_perl_is_preferred_over_timeout() {
   local dir out
   dir="$TMP_ROOT/prefer"
   mkdir -p "$dir/bin"
-  for tool in perl bash; do
+  for tool in perl bash sh; do
     ln -s "$(command -v "$tool")" "$dir/bin/$tool"
   done
   printf '#!/bin/sh\necho timeout-used > "%s"\nexit 99\n' "$dir/timeout-used" > "$dir/bin/timeout"
