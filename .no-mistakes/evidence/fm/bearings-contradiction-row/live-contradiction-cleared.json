@@ -1,0 +1,19 @@
+{
+  "secondmates": [
+    {
+      "id": "authority",
+      "state": "no_active_work",
+      "contradiction": false
+    },
+    {
+      "id": "umbrella",
+      "state": "active_child_work",
+      "contradiction": false
+    }
+  ],
+  "gates": [
+    "(main-inventory)",
+    "dated-new",
+    "dated-old"
+  ]
+}

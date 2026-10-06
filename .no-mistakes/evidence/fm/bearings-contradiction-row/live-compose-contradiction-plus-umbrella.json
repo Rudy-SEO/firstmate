@@ -1,0 +1,71 @@
+{
+  "schema": "fm-bearings.v1",
+  "secondmates": [
+    {
+      "id": "authority",
+      "state": "no_active_work",
+      "doing": "No active child work",
+      "provenance": "structured-home",
+      "freshness": "fresh",
+      "age_seconds": 0,
+      "contradiction": true,
+      "reason": "-"
+    },
+    {
+      "id": "umbrella",
+      "state": "active_child_work",
+      "doing": "hermes-vps-orchestration: in_flight",
+      "provenance": "structured-home",
+      "freshness": "fresh",
+      "age_seconds": 0,
+      "contradiction": false,
+      "reason": "-"
+    }
+  ],
+  "gates": [
+    {
+      "id": "(contradiction:authority)",
+      "title": "no_active_work: parent/terminal evidence disagrees",
+      "blocked_by": "-",
+      "reason": "parent/terminal evidence contradicts structured state",
+      "owner": "authority",
+      "filed": null
+    }
+  ],
+  "in_flight": [
+    {
+      "id": "umbrella/hermes-vps-orchestration",
+      "kind": "program",
+      "state": "in_flight",
+      "repo": "hermes-vps",
+      "name": "Build BRAIN/HOST lanes on the VPS",
+      "doing": "in_flight"
+    }
+  ],
+  "omitted": [
+    {
+      "surface": "backlog item bodies",
+      "reveal": "--fields bodies"
+    },
+    {
+      "surface": "task paths",
+      "reveal": "--fields paths"
+    },
+    {
+      "surface": "watch/steer actions",
+      "reveal": "--fields actions"
+    },
+    {
+      "surface": "healthy endpoint detail",
+      "reveal": "--fields endpoints"
+    },
+    {
+      "surface": "full scout-report inventory",
+      "reveal": "--all-reports"
+    },
+    {
+      "surface": "live PR discovery + checks",
+      "reveal": "--include-prs"
+    }
+  ]
+}

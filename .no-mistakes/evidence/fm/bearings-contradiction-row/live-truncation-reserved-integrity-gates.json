@@ -1,0 +1,34 @@
+{
+  "gates": [
+    {
+      "id": "(main-inventory)",
+      "title": "in-flight backlog item has no child metadata",
+      "blocked_by": "-",
+      "reason": "main inventory",
+      "owner": "(main)",
+      "filed": null
+    },
+    {
+      "id": "(contradiction:authority)",
+      "title": "no_active_work: parent/terminal evidence disagrees",
+      "blocked_by": "-",
+      "reason": "parent/terminal evidence contradicts structured state",
+      "owner": "authority",
+      "filed": null
+    },
+    {
+      "id": "dated-new",
+      "title": "Newest dated queued gate",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-07-02"
+    }
+  ],
+  "omitted": [
+    {
+      "surface": "gates showing 1 of 2",
+      "reveal": "--all-queued"
+    }
+  ]
+}

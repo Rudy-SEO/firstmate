@@ -1,0 +1,46 @@
+schema: fm-bearings.v1
+home: fm-bearings.zX1bGd/live-compose
+generated: "2026-07-11T18:00:00Z"
+prs: "not_requested (run: /bearings include PRs)"
+contributions: 
+  scope: owned contributions per home
+  known: 0
+  checked: 0
+  counts: 
+    captain: 0
+    fleet: 0
+    maintainer: 0
+    nobody: 0
+  complete: false
+  proven_clear: false
+  unmeasured_homes: 0
+  unreadable_records: 1
+  unmeasured: 0
+  stale_verdicts: 0
+  missing_verdicts: 0
+  captain_omitted: 0
+  captain: []
+in_flight[1]{id,kind,state,repo,name,doing}:
+  umbrella/hermes-vps-orchestration,program,in_flight,hermes-vps,Build BRAIN/HOST lanes on the VPS,in_flight
+secondmates[2]{id,state,doing,provenance,freshness,age_seconds,contradiction,reason}:
+  authority,no_active_work,No active child work,structured-home,fresh,0,true,"-"
+  umbrella,active_child_work,"hermes-vps-orchestration: in_flight",structured-home,fresh,0,false,"-"
+secondmate_reconcile[2]{id,spawn_gen,host,kind,ids}:
+  authority,null,null,null,"[]"
+  umbrella,null,null,null,"[]"
+decisions_open: []
+landed: []
+gates[1]{id,title,blocked_by,reason,owner,filed}:
+  "(contradiction:authority)","no_active_work: parent/terminal evidence disagrees","-",parent/terminal evidence contradicts structured state,authority,null
+reports: []
+recorded_prs: []
+unhealthy_endpoints[2]{id,backend,target,exists,agent}:
+  authority,tmux,"firstmate:fm-authority",true,dead
+  umbrella,tmux,"firstmate:fm-umbrella",true,dead
+omitted[6]{surface,reveal}:
+  backlog item bodies,"--fields bodies"
+  task paths,"--fields paths"
+  watch/steer actions,"--fields actions"
+  healthy endpoint detail,"--fields endpoints"
+  full scout-report inventory,"--all-reports"
+  live PR discovery + checks,"--include-prs"
