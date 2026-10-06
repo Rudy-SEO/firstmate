@@ -49,7 +49,9 @@
 # Ordinary Charted Next gates are ordered by durable filed date, newest first,
 # before the FM_BEARINGS_GATES bound is applied. Gates without a comparable filed
 # date keep their input order after dated gates. The synthetic (return-catchup)
-# posture row is reserved ahead of that ordering and bound so it always surfaces.
+# posture row and the action-free integrity gates - (main-inventory) and
+# (contradiction:<id>) - are reserved ahead of that ordering and bound so they
+# always surface.
 #
 # Main-home inventory validity comes from the canonical snapshot's main_inventory
 # object (orphan structured in-flight without meta, unstructured current rows).
@@ -66,6 +68,14 @@
 # catch-up was retained. Reporting is not ordinary captain work, so the gate never
 # suppresses the digest; an ACTIVE away window still refuses, because the right
 # answer there is to run the return first. bin/fm-afk-return.sh owns the gate.
+#
+# When a secondmate home's row carries contradiction:true (its structured summary
+# reads idle while bounded parent-event or terminal evidence disagrees), that is
+# also disclosed the same way, as a (contradiction:<id>) gate row. The structured
+# summary stays authoritative and unblurred on the home's own secondmates[] row;
+# the gate row only names the mismatch and its evidence source, never asserts the
+# home is working as structured fact. It disappears on its own once the home's
+# structure and its evidence agree again, because gates are recomputed every run.
 #
 # The landed section merges this home's Done with the canonical snapshot's
 # secondmate_landed roll-up (fm-fleet-snapshot.sh), so merges a secondmate managed -
@@ -156,7 +166,8 @@ Default fields: schema, home, generated, prs, in_flight{id,kind,state,repo,name,
   gates{id,title,blocked_by,reason,owner,filed}, reports{id,path}, recorded_prs{id,url},
   unhealthy_endpoints{...} (only when non-empty), omitted{surface,reveal}.
 Default gates are selected newest filed first before their bound; undated gates
-  retain input order after dated gates.
+  retain input order after dated gates. The (return-catchup), (main-inventory),
+  and (contradiction:<id>) rows are reserved ahead of that ordering and bound.
 landed merges this home's Done with registered secondmate homes' Done, bounded by
   a per-home cap (FM_BEARINGS_LANDED_PER_HOME) and an overall cap (FM_BEARINGS_LANDED),
   with omitted[] disclosure. Default selection is balanced across deterministic home
@@ -576,7 +587,15 @@ MODEL=$(printf '%s' "$SNAP" | jq \
           owner:"(main)",
           filed:null}]
       else [] end)
-     + [ .backlog.records[]
+     + [ $secondmates_all[]
+         | select(.contradiction == true)
+         | {id:("(contradiction:" + .id + ")"),
+            title:((.state + ": parent/terminal evidence disagrees") | trunc(60)),
+            blocked_by:"-",
+            reason:"parent/terminal evidence contradicts structured state",
+            owner:.id,
+            filed:null} ]) as $integrity_gates
+  | ([ .backlog.records[]
          | . as $record
          | select(.structured and
              (.hold_bucket != null or .state == "queued" or
@@ -648,6 +667,7 @@ MODEL=$(printf '%s' "$SNAP" | jq \
       landed: ($done | map({id, what:(.title | trunc(70)),
                             artifact:(landed_artifact // "-"),owner:.home_id})),
       gates: ($return_catchup_gate
+              + $integrity_gates
               + ($gates_all | newest_filed_first
                  | if $all_queued == 1 then . else .[:$gates_n] end)),
       reports: (if $all_reports == 1 then $reports_all else $reports_all[:$reports_n] end),
