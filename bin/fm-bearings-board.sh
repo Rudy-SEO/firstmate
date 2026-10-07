@@ -79,15 +79,20 @@
 # first; a row with no comparable date keeps its payload order after every dated
 # row. Anything else in that field refuses rather than sorting on garbage.
 #
-# An Underway or Charted Next row MAY carry `source` (a non-empty provenance
-# label such as "verified-lane-status") and `as_of` (the verification instant,
-# same accepted formats as `filed`); the template then badges the row as
-# verified and shows the as-of time. A decision card MAY carry `owner`, the
-# registered secondmate home id that owns the held task; the card renders with
-# that owner and the bearings skill routes its captured answer to that home
-# through the parent decision-answer path instead of the main-home intake.
-# All three validate fail-closed; a Charted Next id may carry one
-# `<home>/<lane>` scoping segment for cross-home verified rows.
+# An Underway or Charted Next row MAY carry `source` (exactly the one
+# verified provenance label the snapshot composes, "verified-lane-status" -
+# any other string refuses, so no future label can rent the verified badge)
+# and `as_of` (the verification instant, same accepted formats as `filed`);
+# the template then badges the row as verified and shows the as-of time.
+# A decision card MAY carry `owner`, the registered secondmate home id that
+# owns the held task; such a card's `key` MUST be `<owner>/<task-id>` and a
+# mismatched pair refuses. The owner-qualified key is the collision guard:
+# `/` is not legal in a main-home task id, so the keyed-answer intake can
+# never resolve such an answer against a same-id main-home captain hold, and
+# the bearings skill routes the captured answer to the owning home through
+# the parent decision-answer path instead. All of these validate fail-closed;
+# a Charted Next id may carry one `<home>/<lane>` scoping segment for
+# cross-home verified rows.
 #
 # The board path is stable - $FM_HOME/.lavish/bearings-board.html - so a
 # re-invocation rebuilds the same file in place, which keeps the same Lavish
@@ -152,12 +157,20 @@ validate_payload() {  # <data.json>
           and (.artifact | slug(128))
           and (.version | version));
     def optional_source:
-      (has("source") | not) or (.source == null) or (.source | nonempty_string);
+      (has("source") | not) or (.source == null) or (.source == "verified-lane-status");
     def optional_as_of:
       (has("as_of") | not) or (.as_of == null) or (.as_of | valid_filed);
+    def owner_scoped_key:
+      . as $card
+      | if ($card | has("owner")) and $card.owner != null then
+          ($card.owner + "/") as $p
+          | ($card.key | type == "string")
+            and ($card.key | startswith($p))
+            and ($card.key | ltrimstr($p) | slug(128))
+        else ($card.key | slug(128)) end;
     def call_item:
       type == "object"
-      and (.key | slug(128))
+      and owner_scoped_key
       and (.type == "decision" or .type == "merge" or .type == "credential")
       and repo_marker
       and (.title | nonempty_string)

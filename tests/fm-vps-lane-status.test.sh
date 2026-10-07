@@ -49,6 +49,8 @@ make_fixture() {  # <name> -> echoes <parent> <mate>
 - [ ] ms9-owner - MS-9 owner decisions (repo: firstmate) (kind: captain) (hold: decide the reply-detection read seam owner) (hold-kind: captain)
   Captain hold set: 2026-10-06
   Items 4 and 6: pick the reply-detection read seam owner and whether SUPERSEDED drafts are marked by the watcher or the composer.
+- [ ] ms9-owner-x - MS-9 sibling decision (repo: firstmate) (kind: captain) (hold: sibling call sharing a hyphenated id prefix) (hold-kind: captain)
+  Captain hold set: 2026-10-06
 
 ## Done
 EOF
@@ -60,7 +62,10 @@ EOF
     "kind=secondmate" \
     "mode=secondmate" \
     "home=$mate"
-  printf 'needs-decision [key=captain-hold-ms9-owner-1]: MS-9 owner decisions\n' \
+  # The sibling-task trap key comes first: a prefix-only route-key match would
+  # select captain-hold-ms9-owner-x-1 for task ms9-owner, so the exact
+  # route_key assertion below pins the digits-only suffix rule.
+  printf 'needs-decision [key=captain-hold-ms9-owner-x-1]: sibling task trap\nneeds-decision [key=captain-hold-ms9-owner-1]: MS-9 owner decisions\n' \
     > "$parent/state/mate.status"
   FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$mate" \
     FM_SNAPSHOT_NOW="$NOW" FM_SNAPSHOT_NOW_EPOCH="$NOW_EPOCH" \
@@ -155,14 +160,19 @@ test_a_valid_lane_document_projects_verified_rows() {
   ' >/dev/null || fail "a mate-published captain hold produced a false contradiction gate"
 
   # The secondmate-owned captain decision carries the owning home's own
-  # recorded wording and the open parent-channel route key.
+  # recorded wording and the open parent-channel route key. The sibling task
+  # ms9-owner-x shares ms9-owner as a hyphenated prefix and its key appears
+  # first, so these exact assertions pin the digits-only suffix rule.
   printf '%s' "$bearings" | jq -e '
     ([.decisions_open[] | select(.id == "mate/ms9-owner")]) as $d
+    | ([.decisions_open[] | select(.id == "mate/ms9-owner-x")]) as $x
     | ($d | length) == 1
       and $d[0].owner == "mate"
       and ($d[0].detail | test("reply-detection read seam owner"))
       and $d[0].route_key == "captain-hold-ms9-owner-1"
-  ' >/dev/null || fail "the secondmate decision lost its detail or route key"
+      and ($x | length) == 1
+      and $x[0].route_key == "captain-hold-ms9-owner-x-1"
+  ' >/dev/null || fail "the secondmate decisions lost their detail or exact route keys"
 
   # TOON parity: the default rendering carries the same verified rows.
   toon=$(env FM_HOME="$parent" FM_BEARINGS_NOW="$NOW" "$BEARINGS") || fail "TOON rendering failed"

@@ -332,6 +332,16 @@ test_build_refuses_malformed_payloads_before_touching_the_board() {
   set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
   [ "$rc" -ne 0 ] || fail "an owner on a non-decision card was accepted"
 
+  write_valid_payload "$data"
+  jq '.captains_call[0].owner = "morgan"' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
+  [ "$rc" -ne 0 ] || fail "an owner card whose key is not owner-qualified was accepted"
+
+  write_valid_payload "$data"
+  jq '.charted[0].source = "handwritten-note"' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
+  [ "$rc" -ne 0 ] || fail "a non-verified source label was accepted"
+
   assert_absent "$board" "a refused payload still produced a board"
   pass "build refuses malformed payloads before touching the board"
 }
@@ -346,6 +356,7 @@ test_build_accepts_owner_and_verified_lane_fields() {
   data="$home/payload.json"
   write_valid_payload "$data"
   jq '.captains_call[0].owner = "morgan"
+    | .captains_call[0].key = ("morgan/" + .captains_call[0].key)
     | .underway = [{"id":"morgan/lane-1","repo":null,"name":"Provider migration",
         "state":"working","kind":"vps-lane","doing":"verified 31m ago",
         "source":"verified-lane-status","as_of":"2026-10-07T15:29:00Z"}]
@@ -358,6 +369,7 @@ test_build_accepts_owner_and_verified_lane_fields() {
   payload=$(extract_payload "$board")
   printf '%s' "$payload" | jq -e '
     .captains_call[0].owner == "morgan"
+    and (.captains_call[0].key | startswith("morgan/"))
     and .underway[0].source == "verified-lane-status"
     and .underway[0].as_of == "2026-10-07T15:29:00Z"
     and ([.charted[] | select(.id == "morgan/lane-2")] | length) == 1

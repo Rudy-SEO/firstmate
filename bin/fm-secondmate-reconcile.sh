@@ -6,7 +6,7 @@
 #   fm-secondmate-reconcile.sh request --snapshot <file>|-
 #   fm-secondmate-reconcile.sh process-requests
 #   fm-secondmate-reconcile.sh notify [--snapshot <file>|-]
-#   fm-secondmate-reconcile.sh nudged <mate-id> [--lane-status]
+#   fm-secondmate-reconcile.sh nudged <mate-id>
 #
 # Two target kinds share this one durable request queue, cooldown shape, and
 # delivery plane:
@@ -147,7 +147,7 @@ usage() {
 usage: fm-secondmate-reconcile.sh request --snapshot <file>|-
        fm-secondmate-reconcile.sh process-requests
        fm-secondmate-reconcile.sh notify [--snapshot <file>|-]
-       fm-secondmate-reconcile.sh nudged <mate-id> [--lane-status]
+       fm-secondmate-reconcile.sh nudged <mate-id>
 
 request  accept exactly one captured snapshot and atomically publish at most
          one pending request per stable target id and kind for later supervision
@@ -166,8 +166,7 @@ notify   ask every secondmate home whose backlog disagrees with its own task
          FM_LANE_REFRESH_COOLDOWN_SECONDS).
          Reads an fm-fleet-snapshot.v1 or fm-bearings.v1 document from
          --snapshot (or runs fm-fleet-snapshot.sh --json when omitted).
-nudged   print the epoch second of the last reconcile nudge sent to <mate-id>;
-         --lane-status prints the lane refresh stamp instead.
+nudged   print the epoch second of the last reconcile nudge sent to <mate-id>.
 EOF
 }
 
@@ -221,22 +220,11 @@ revalidate_identity() {  # <meta> <sampled_spawn_gen> <sampled_host>
 }
 
 cmd_nudged() {
-  local id='' lane=0 path
-  while [ "$#" -gt 0 ]; do
-    case "$1" in
-      --lane-status) lane=1 ;;
-      -*) usage >&2; exit 2 ;;
-      *) [ -z "$id" ] || { usage >&2; exit 2; }; id=$1 ;;
-    esac
-    shift
-  done
-  [ -n "$id" ] || { usage >&2; exit 2; }
-  case "$id" in */*|.*) fail "not a task id: $id" ;; esac
-  if [ "$lane" -eq 1 ]; then
-    path=$(lane_nudge_path "$id")
-  else
-    path=$(nudge_path "$id")
-  fi
+  local id path
+  [ "$#" -eq 1 ] || { usage >&2; exit 2; }
+  id=$1
+  case "$id" in ''|*/*|.*) fail "not a task id: $id" ;; esac
+  path=$(nudge_path "$id")
   [ -f "$path" ] && [ ! -L "$path" ] || return 1
   cat "$path"
 }

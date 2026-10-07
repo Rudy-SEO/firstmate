@@ -444,10 +444,14 @@ MODEL=$(printf '%s' "$SNAP" | jq \
       else (try ($as_of | fromdateiso8601) catch null) as $e
       | if $e == null then null else ([$ne - $e, 0] | max) end end;
   def mate_route_key($m; $task_id):
-    ([ $m.parent_event.open_decisions[]?
+    ("captain-hold-" + $task_id + "-") as $prefix
+    | ([ $m.parent_event.open_decisions[]?
        | .key
        | strings
-       | select(startswith("captain-hold-" + $task_id + "-")) ] | .[0]) // null;
+       # The suffix after the prefix must be the occurrence number alone, or a
+       # sibling task id sharing this id as a hyphenated prefix (ms9 vs
+       # ms9-owner) would cross-match and route the answer to the wrong call.
+       | select(startswith($prefix) and (ltrimstr($prefix) | test("^[0-9]+$"))) ] | .[0]) // null;
   def live_captain_call: .hold_bucket == "live";
   def projected_deferred_hold:
     .hold_bucket != null and .hold_bucket != "live";
