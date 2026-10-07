@@ -207,6 +207,7 @@ Each key is reported as follows:
 | Key | Result |
 | --- | --- |
 | Names no task, names a task that is not captain-held, or names a task already closed | Reported as `skipped:` and feeds nothing. |
+| An owner-scoped `<home>/<task>` key (a decision card another home owns) | Reported as `skipped:` with an owner-scoped note and never resolved locally - `/` is not legal in a local task id, so the answer cannot land on a same-id main-home hold; the bearings skill's board-wake procedure owns routing it to the owning home. |
 | A replay whose answer and requested close mode match the newest record | An idempotent `closed:`. |
 | A replay with a mode mismatch | Skipped. |
 
@@ -337,9 +338,10 @@ That scope is all card types, because the captured payload carries no card type.
 
 ### Remote-secondmate cards
 
-Owner-aware routing for remote-secondmate decision cards is tracked separately.
+A decision card another home owns is carded first-class with key `<owner>/<task-id>` and an `owner` field, and a captured ANSWER on it is routable today: the keyed-answer intake refuses the owner-scoped key locally, and the bearings skill's board-wake procedure sends the captain's exact words to the owning home through the parent decision-answer path.
+Owner-aware RECONCILE request and mutation routing for those cards is tracked separately.
 That follow-up must query landedness and route reconciliation in the authoritative secondmate home while honoring the remote and local consistency principle.
-Until then, an absent main-home task passes through this hygiene check unchanged.
+Until then, an owner card's task is absent from the main backlog and passes through this hygiene check unchanged.
 Its Reconcile selection remains announced but cannot create a main-home request, because the main intake refuses an absent task.
 For a main-home call, the reconcile option is the recovery path for whatever still slips through.
 
@@ -530,6 +532,7 @@ The suite does not test the accepted merge-to-cleanup re-hold window or asynchro
 
 - Answer-time resolution works through a bound channel with task-id keys.
   This includes the `release` mode, mode-matched replay idempotence, and the refusal of drifted, mode-mismatched, absent, unheld, and already-closed keys.
+- An owner-scoped `<home>/<task>` key is loudly reported `skipped:` and never resolves a same-id local captain hold.
 - The chat channel reaches the same intake.
 - Hold-set stamping precedes visible hold state, preserves an active lifecycle's timestamp, and resets after release.
 - Interrupted answer closure retains the stamp until close and restores resolution-first ordering on retry.
@@ -613,6 +616,7 @@ The board's half is pinned in `tests/fm-bearings-board.test.sh`:
 - Recommendations name authored options.
 - A decision card whose structured subject appears in the payload's landed rows is dropped.
   A genuinely open one is kept even when an unrelated landed id contains its key after a newline.
+- An owner card validates its `owner` against its `<owner>/<task-id>` key, and a row's optional verified provenance accepts only the single `verified-lane-status` label.
 - A build requires a fresh authoritative listed-open result before binding or arming.
 - A reopen retires the pre-reopen source generation and waits for a fresh live listener.
 - A rebuild of an already-armed board with no live listener starts one.
