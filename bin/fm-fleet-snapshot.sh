@@ -100,6 +100,24 @@
 #     reconcile_inventory independently of projection trust.
 #     Actionable captain holds appear in decisions_open; every captain hold remains
 #     in the bounded queued inventory with its structured classification metadata.
+#     A backlog-sourced decisions_open row also carries detail, the held task's
+#     body excerpt, so a renderer can card the decision with the wording the
+#     owning home itself recorded; older producers without it stay valid.
+#     Each record also carries lane_status, the home's optional verified
+#     lane-status document (state/vps-lane-status.json, schema
+#     fm-vps-lane-status.v1; docs/vps-lane-status.md owns the producer
+#     contract). null means the home publishes none. A valid document yields
+#     {available:true, source, generated, generated_epoch, as_of,
+#     summary_source, freshness, stale, refresh_due, lanes[], lanes_total,
+#     truncated}: lanes are capped at FM_SNAPSHOT_LANES, freshness age comes
+#     from generated_epoch, and stale means older than
+#     FM_SNAPSHOT_LANE_FRESH_SECONDS (7200s default). A present-but-invalid or
+#     oversized document yields {available:false, reason, refresh_due:true} and
+#     never half-renders. Collection mirrors the summary ledger: direct read
+#     for a local home, the bounded concurrent remote read plus parent-side
+#     cache fallback for a remote home, independent of summary validity.
+#     refresh_due is the single signal bin/fm-secondmate-reconcile.sh consumes
+#     to record a durable lane refresh request.
 #     Before that queued bound is applied, non-captain-actionable rows are selected
 #     ahead of captain-actionable rows so separately projected live decisions cannot
 #     crowd Charted-Next-eligible work out of the summary. Each group is ordered by
@@ -180,6 +198,8 @@ FM_SNAPSHOT_REGISTRY_LINES=${FM_SNAPSHOT_REGISTRY_LINES:-256}
 FM_SNAPSHOT_REGISTRY_BYTES=${FM_SNAPSHOT_REGISTRY_BYTES:-65536}
 FM_SNAPSHOT_REGISTRY_RECORDS=${FM_SNAPSHOT_REGISTRY_RECORDS:-40}
 FM_SNAPSHOT_REGISTRY_TIMEOUT=${FM_SNAPSHOT_REGISTRY_TIMEOUT:-2}
+FM_SNAPSHOT_LANES=${FM_SNAPSHOT_LANES:-20}
+FM_SNAPSHOT_LANE_FRESH_SECONDS=${FM_SNAPSHOT_LANE_FRESH_SECONDS:-7200}
 validate_positive_bound() {  # <name> <value>
   case "$2" in
     ''|*[!0-9]*|0)
@@ -212,6 +232,8 @@ validate_positive_bound FM_SNAPSHOT_REGISTRY_LINES "$FM_SNAPSHOT_REGISTRY_LINES"
 validate_positive_bound FM_SNAPSHOT_REGISTRY_BYTES "$FM_SNAPSHOT_REGISTRY_BYTES"
 validate_positive_bound FM_SNAPSHOT_REGISTRY_RECORDS "$FM_SNAPSHOT_REGISTRY_RECORDS"
 validate_positive_bound FM_SNAPSHOT_REGISTRY_TIMEOUT "$FM_SNAPSHOT_REGISTRY_TIMEOUT"
+validate_positive_bound FM_SNAPSHOT_LANES "$FM_SNAPSHOT_LANES"
+validate_positive_bound FM_SNAPSHOT_LANE_FRESH_SECONDS "$FM_SNAPSHOT_LANE_FRESH_SECONDS"
 FM_SNAPSHOT_UNDATED_HOLD_AGE_DAYS=${FM_SNAPSHOT_UNDATED_HOLD_AGE_DAYS:-14}
 case "$FM_SNAPSHOT_UNDATED_HOLD_AGE_DAYS" in
   ''|*[!0-9]*)
@@ -1016,6 +1038,7 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
          | select(.captain_actionable == true)
          | {id,key:.id,verb:"captain-hold",summary:(.title | trunc(160)),
             reason:(.hold_reason | trunc(160)),
+            detail:((.body_excerpt // null) | if . == null then null else trunc(240) end),
             hold_until:(.hold_until // null),
             hold_bucket:(.hold_bucket // null),
             hold_age_days:(.hold_age_days // null),source:"backlog"} ]) as $captain_holds_all
@@ -1305,6 +1328,7 @@ JQ
 # survive the snapshot and convoy a later read.
 SNAPSHOT_COLLECT_DIR=
 SNAPSHOT_SUMMARY_FILTER=
+SNAPSHOT_LANE_FILTER=
 SNAPSHOT_CACHE_AVAILABLE=0
 SNAPSHOT_COLLECTION_TIMED_OUT=0
 
@@ -1342,6 +1366,35 @@ summary_file_oversized() {  # <file>
   bytes=$(LC_ALL=C wc -c < "$1" | tr -d ' ')
   case "$bytes" in ''|*[!0-9]*) return 1 ;; esac
   [ "$bytes" -gt "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" ]
+}
+
+# Same bounded read-and-validate shape as summary_file_read, against the
+# fail-closed fm-vps-lane-status.v1 filter (docs/vps-lane-status.md).
+lane_file_read() {  # <file> <expected-home> <output-file>
+  local file=$1 home=$2 output=$3 captured bytes rc
+  [ -f "$file" ] && [ ! -L "$file" ] || return 1
+  captured=$(umask 077; mktemp "$SNAPSHOT_COLLECT_DIR/.selected-lane.XXXXXX") || return 1
+  if ! LC_ALL=C head -c "$((FM_SNAPSHOT_SECONDMATE_MAX_BYTES + 1))" "$file" > "$captured"; then
+    rm -f -- "$captured"
+    return 1
+  fi
+  bytes=$(LC_ALL=C wc -c < "$captured" | tr -d ' ')
+  case "$bytes" in
+    ''|*[!0-9]*) rm -f -- "$captured"; return 1 ;;
+  esac
+  if [ "$bytes" -gt "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" ] \
+    || ! jq -e -s --arg home "$home" -f "$SNAPSHOT_LANE_FILTER" "$captured" >/dev/null 2>&1; then
+    rm -f -- "$captured"
+    return 1
+  fi
+  jq -c -s '.[0]' "$captured" > "$output"
+  rc=$?
+  rm -f -- "$captured"
+  if [ "$rc" -ne 0 ]; then
+    rm -f -- "$output"
+    return "$rc"
+  fi
+  return 0
 }
 
 snapshot_cache_prepare() {
@@ -1407,6 +1460,29 @@ length == 1 and (.[0] |
   and (.counts | type) == "object" and (.omitted | type) == "array"
 )
 JQ
+  SNAPSHOT_LANE_FILTER="$SNAPSHOT_COLLECT_DIR/lane-filter.jq"
+  # docs/vps-lane-status.md owns this producer contract; the filter is the
+  # fail-closed consumer half. A document failing any clause is unavailable.
+  cat > "$SNAPSHOT_LANE_FILTER" <<'JQ'
+def lane_ts: type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$");
+length == 1 and (.[0] |
+  .schema == "fm-vps-lane-status.v1"
+  and .home == $home
+  and (.generated | lane_ts)
+  and (.generated_epoch | type) == "number" and .generated_epoch >= 0 and (.generated_epoch | floor) == .generated_epoch
+  and (.source | type) == "string" and (.source | length) > 0
+  and (.as_of | lane_ts)
+  and (.lanes | type) == "array"
+  and ([.lanes[] |
+        type == "object"
+        and (.id | type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"))
+        and (.name | type == "string" and length > 0)
+        and (.state | IN("working","validating","waiting","blocked","queued","paused","done","failed"))
+        and (.as_of | lane_ts)
+        and (.gates | type == "array" and all(.[]; type == "string"))
+        and (.needs_captain | type == "boolean")] | all)
+)
+JQ
   snapshot_cache_prepare || true
   manifest="$SNAPSHOT_COLLECT_DIR/manifest.jsonl"
   : > "$manifest"
@@ -1438,6 +1514,7 @@ manifest=$2
 out_dir=$3
 filter=$4
 max_bytes=$5
+lane_filter=$6
 
 valid_summary() {  # <file> <home>
   local file=$1 home=$2 bytes
@@ -1446,6 +1523,15 @@ valid_summary() {  # <file> <home>
   case "$bytes" in ''|*[!0-9]*) return 1 ;; esac
   [ "$bytes" -le "$max_bytes" ] || return 1
   jq -e -s --arg home "$home" -f "$filter" "$file" >/dev/null 2>&1
+}
+
+valid_lane_doc() {  # <file> <home>
+  local file=$1 home=$2 bytes
+  [ -f "$file" ] && [ ! -L "$file" ] || return 1
+  bytes=$(LC_ALL=C wc -c < "$file" | tr -d ' ')
+  case "$bytes" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$bytes" -le "$max_bytes" ] || return 1
+  jq -e -s --arg home "$home" -f "$lane_filter" "$file" >/dev/null 2>&1
 }
 
 bounded_collect() {  # <output> <error> <command...>
@@ -1467,17 +1553,46 @@ collect_one() {  # <manifest-row>
   slot=$(printf '%s' "$row" | jq -r '.slot') || return
   fetch="$out_dir/$slot.fetch"
   status="$out_dir/$slot.status"
+  collect_lane "$id" "$home" "$cache" "$slot" &
   if bounded_collect "$fetch" "$out_dir/$slot.fetch.err" \
       "$script_dir/fm-on.sh" "$id" fm-remote-file.sh get state/home-summary.json "$max_bytes" \
       && valid_summary "$fetch" "$home"; then
     printf 'fresh\n' > "$status"
+    wait
     return
   fi
   if [ -n "$cache" ] && valid_summary "$cache" "$home"; then
     printf 'cached\n' > "$status"
+    wait
     return
   fi
   printf 'failed\n' > "$status"
+  wait
+}
+
+# The optional verified lane-status document rides the same bounded remote
+# read; docs/vps-lane-status.md owns the producer contract. An empty fetch is
+# "absent" (most homes publish none); a non-empty invalid fetch is "invalid".
+collect_lane() {  # <id> <home> <summary-cache-path> <slot>
+  local id=$1 home=$2 cache=$3 slot=$4 lane_fetch lane_status lane_cache=''
+  lane_fetch="$out_dir/$slot.lane.fetch"
+  lane_status="$out_dir/$slot.lane.status"
+  [ -z "$cache" ] || lane_cache="${cache%.json}.lane.json"
+  if bounded_collect "$lane_fetch" "$out_dir/$slot.lane.err" \
+      "$script_dir/fm-on.sh" "$id" fm-remote-file.sh get state/vps-lane-status.json "$max_bytes" \
+      && valid_lane_doc "$lane_fetch" "$home"; then
+    printf 'fresh\n' > "$lane_status"
+    return
+  fi
+  if [ -n "$lane_cache" ] && valid_lane_doc "$lane_cache" "$home"; then
+    printf 'cached\n' > "$lane_status"
+    return
+  fi
+  if [ -s "$lane_fetch" ]; then
+    printf 'invalid\n' > "$lane_status"
+  else
+    printf 'absent\n' > "$lane_status"
+  fi
 }
 
 while IFS= read -r row; do
@@ -1490,7 +1605,7 @@ BASH
   SNAPSHOT_COLLECTION_TIMED_OUT=0
   if fm_run_timed "$FM_SNAPSHOT_BUDGET" bash "$collector" \
       "$SCRIPT_DIR" "$manifest" "$SNAPSHOT_COLLECT_DIR" "$SNAPSHOT_SUMMARY_FILTER" \
-      "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES"; then
+      "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" "$SNAPSHOT_LANE_FILTER"; then
     :
   else
     rc=$?
@@ -1512,6 +1627,7 @@ snapshot_collection_cleanup() {
   [ -z "$SNAPSHOT_COLLECT_DIR" ] || rm -rf -- "$SNAPSHOT_COLLECT_DIR"
   SNAPSHOT_COLLECT_DIR=
   SNAPSHOT_SUMMARY_FILTER=
+  SNAPSHOT_LANE_FILTER=
 }
 snapshot_cleanup() {
   snapshot_task_cleanup
@@ -1709,7 +1825,17 @@ parent_evidence_reconciliation_json() {  # <summary-json-file> <activities-json>
              ([ $summary.decisions_open[]
                 | select(.verb == "needs-decision")
                 | select(if ($e.key | keyed) then .key == $e.key else true end)
-                | {surface:"decisions_open",id,key,verb}]) as $matches
+                | {surface:"decisions_open",id,key,verb}]
+              + [ (try ($e.key | capture("^captain-hold-(?<tid>.+)-[0-9]+$")) catch null) as $hold
+                  # The mate home captain-hold owner publishes a hold on the
+                  # parent channel as needs-decision [key=captain-hold-<task>-<n>]
+                  # while its own summary row stays verb captain-hold with the
+                  # plain task id, so that pairing corroborates rather than
+                  # contradicting the structured home.
+                  | select($hold != null)
+                  | $summary.decisions_open[]
+                  | select(.verb == "captain-hold" and .id == $hold.tid)
+                  | {surface:"decisions_open",id,key,verb}]) as $matches
              | result($e; $matches;
                  $summary.counts.decisions_open == ($summary.decisions_open | length);
                  "decisions_open")
@@ -1739,6 +1865,7 @@ secondmate_current_json() {  # <parent-tasks-json-file> <output-file>
   local row id home host remote registered registry_error task sampled_spawn_gen status_file status_observation_file event_raw event_note event_age observed_epoch observed_age
   local activity_scan activities decisions reconciliation provenance freshness reason summary_file summary_sampled summary_valid summary_invalidity state terminal terminal_contradiction contradiction
   local summary_source summary_age summary_observed summary_freshness cache_path collection_status collection_slot summary_index=0
+  local route_ok lane_status lane_file lane_source lane_freshness lane_reason lane_cache_path lane_collect_status lane_age lane_path
   local seen_homes=''
   registry_file="$JSON_TRANSPORT_DIR/secondmate-registry.json"
   union_file="$JSON_TRANSPORT_DIR/secondmate-union.json"
@@ -1829,6 +1956,8 @@ secondmate_current_json() {  # <parent-tasks-json-file> <output-file>
         esac
       fi
     fi
+    route_ok=0
+    [ -n "$reason" ] || route_ok=1
     summary_source=
     summary_age=0
     summary_observed=$SNAPSHOT_NOW
@@ -1875,6 +2004,60 @@ secondmate_current_json() {  # <parent-tasks-json-file> <output-file>
       fi
     fi
 
+    # The optional verified lane-status document is collected independently of
+    # summary validity: a readable lane document still discloses lane truth
+    # when the summary is unreadable, and vice versa. docs/vps-lane-status.md
+    # owns the producer contract; null means the home publishes none.
+    lane_status=null
+    if [ "$route_ok" -eq 1 ]; then
+      lane_file="$SNAPSHOT_COLLECT_DIR/selected-lane-$summary_index.json"
+      lane_source=
+      lane_freshness=fresh
+      lane_reason=
+      if [ "$remote" = true ]; then
+        lane_cache_path=
+        [ -z "$cache_path" ] || lane_cache_path="${cache_path%.json}.lane.json"
+        lane_collect_status=$(cat "$SNAPSHOT_COLLECT_DIR/$collection_slot.lane.status" 2>/dev/null || true)
+        if lane_file_read "$SNAPSHOT_COLLECT_DIR/$collection_slot.lane.fetch" "$home" "$lane_file"; then
+          lane_source='remote-ledger'
+          [ -z "$lane_cache_path" ] || snapshot_cache_store "$lane_file" "$lane_cache_path" || true
+        elif [ -n "$lane_cache_path" ] && lane_file_read "$lane_cache_path" "$home" "$lane_file"; then
+          lane_source='remote-ledger-cache'
+          lane_freshness=cached
+        elif [ "$lane_collect_status" = invalid ]; then
+          lane_reason="lane-status document is invalid or oversized"
+        else
+          lane_reason=absent
+        fi
+      else
+        lane_path="$home/state/vps-lane-status.json"
+        if lane_file_read "$lane_path" "$home" "$lane_file"; then
+          lane_source='local-ledger'
+        elif [ -f "$lane_path" ] && [ ! -L "$lane_path" ]; then
+          lane_reason="lane-status document is invalid or oversized"
+        else
+          lane_reason=absent
+        fi
+      fi
+      if [ -n "$lane_source" ]; then
+        lane_age=$(snapshot_summary_age "$lane_file")
+        lane_status=$(jq -c --arg source "$lane_source" --arg freshness "$lane_freshness" \
+          --argjson age "$lane_age" --argjson fresh_bound "$FM_SNAPSHOT_LANE_FRESH_SECONDS" \
+          --argjson lanes_n "$FM_SNAPSHOT_LANES" '
+          {available:true, reason:null, source:.source, generated:.generated,
+           generated_epoch:.generated_epoch, as_of:.as_of,
+           summary_source:$source,
+           freshness:{status:$freshness, observed_at:.generated, age_seconds:$age},
+           stale:(($age != null) and ($age > $fresh_bound)),
+           refresh_due:(($age == null) or ($age > $fresh_bound)),
+           lanes:(.lanes[:$lanes_n]), lanes_total:(.lanes | length),
+           truncated:((.lanes | length) > $lanes_n)}' "$lane_file") || lane_status=null
+      elif [ "$lane_reason" != absent ]; then
+        lane_status=$(jq -nc --arg reason "$lane_reason" \
+          '{available:false, reason:$reason, refresh_due:true}')
+      fi
+    fi
+
     if [ -z "$reason" ]; then
       state=$(jq -r '.state' "$summary_file")
       reconciliation=$(parent_evidence_reconciliation_json "$summary_file" "$activities" "$decisions")
@@ -1895,6 +2078,7 @@ secondmate_current_json() {  # <parent-tasks-json-file> <output-file>
         --argjson registered "$registered" --slurpfile summary "$summary_file" --argjson summary_valid "$summary_valid" --argjson decisions "$decisions" \
         --argjson activities "$activities" --argjson activity_scan "$activity_scan" \
         --argjson reconciliation "$reconciliation" --argjson terminal "$terminal" --argjson contradiction "$contradiction" \
+        --argjson lane_status "$lane_status" \
         --arg event_raw "$event_raw" --arg event_note "$event_note" --argjson event_age "$event_age" '
         ($summary[0]) as $summary
         |
@@ -1905,6 +2089,7 @@ secondmate_current_json() {  # <parent-tasks-json-file> <output-file>
          provenance:{selected:"structured-home",structured_home:$home,summary_source:$summary_source,summary_valid:$summary_valid,
            trust:(if $summary_valid then "complete" else "partial-structured" end),parent_event_role:"historical-only"},
          freshness:{status:$summary_freshness,observed_at:$observed,age_seconds:$summary_age},
+         lane_status:$lane_status,
          active_children:$summary.active_children,
          decisions_open:$summary.decisions_open,holds:$summary.holds,queued:$summary.queued,
          contributions:($summary.contributions // null),
@@ -1930,7 +2115,8 @@ secondmate_current_json() {  # <parent-tasks-json-file> <output-file>
         --arg spawn_gen "$sampled_spawn_gen" \
         --arg provenance "$provenance" --arg freshness "$freshness" --arg event_raw "$event_raw" --arg event_note "$event_note" \
         --argjson registered "$registered" --argjson event_age "$event_age" --argjson observed_age "$observed_age" --argjson activities "$activities" --argjson activity_scan "$activity_scan" \
-        --argjson decisions "$decisions" --argjson terminal "$terminal" --slurpfile summary "$summary_file" --argjson summary_sampled "$summary_sampled" '
+        --argjson decisions "$decisions" --argjson terminal "$terminal" --slurpfile summary "$summary_file" --argjson summary_sampled "$summary_sampled" \
+        --argjson lane_status "$lane_status" '
         ($summary[0]) as $summary
         |
         {id:$id,home:($home | if . == "" then null else . end),host:($host | if . == "" then null else . end),remote:$remote,registered:$registered,
@@ -1939,6 +2125,7 @@ secondmate_current_json() {  # <parent-tasks-json-file> <output-file>
          reconcile_inventory:(if $summary_sampled then $summary.invalidity else null end),
          provenance:{selected:$provenance,structured_home:($home | if . == "" then null else . end),parent_event_role:"fallback-only-not-current"},
          freshness:{status:$freshness,observed_at:$observed,age_seconds:$observed_age},
+         lane_status:$lane_status,
          active_children:[],decisions_open:[],holds:[],queued:[],landed:[],endpoints:[],counts:{active_children:0,decisions_open:0,holds:0,queued:0,landed:0,endpoints:0},omitted:[],
          parent_event:{raw:$event_raw,note:$event_note,age_seconds:$event_age,open_activities:$activities,open_decisions:$decisions,activity_scan:$activity_scan},
          terminal_evidence:$terminal,contradiction:false}' >> "$records_file" || return 1

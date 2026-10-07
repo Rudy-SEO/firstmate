@@ -280,7 +280,7 @@ remote_home=$(perl -MMIME::Base64=decode_base64 -e 'print decode_base64($ARGV[0]
 args=()
 while IFS= read -r -d '' arg; do args+=("$arg"); done \
   < <(perl -MMIME::Base64=decode_base64 -e 'print decode_base64($ARGV[0])' "$4")
-printf '%s\t%s\n' "$remote_home" "${args[0]:-}" >> "$FM_TEST_LEDGER_CALL_LOG"
+printf '%s\t%s\t%s\n' "$remote_home" "${args[0]:-}" "${args[2]:-}" >> "$FM_TEST_LEDGER_CALL_LOG"
 if [ -f "$remote_home/state/slow-ledger-read" ]; then
   active_marker="$FM_TEST_LEDGER_ACTIVE_DIR/collector-$$"
   : > "$active_marker"
@@ -300,11 +300,12 @@ if [ -f "$remote_home/state/slow-ledger-read" ]; then
 fi
 case "${args[0]:-}" in
   fm-remote-file.sh)
-    [ -f "$remote_home/state/home-summary.json" ] || exit 1
-    if [ -f "$remote_home/state/unbounded-ledger-read" ]; then
+    req=${args[2]:-}
+    [ -n "$req" ] && [ -f "$remote_home/$req" ] || exit 1
+    if [ -f "$remote_home/state/unbounded-ledger-read" ] && [ "$req" = state/home-summary.json ]; then
       yes x
     else
-      cat "$remote_home/state/home-summary.json"
+      cat "$remote_home/$req"
     fi
     ;;
   *) exit 91 ;;
@@ -312,6 +313,12 @@ esac
 SH
   chmod +x "$fb/fake-ssh"
   printf '%s\n' "$fb"
+}
+
+# A healthy snapshot makes exactly two bounded file reads per sampled remote
+# home: the summary ledger and the optional verified lane-status document.
+ledger_reads() {  # <log> <remote path>
+  awk -F '\t' -v p="$2" '$3 == p' "$1" | wc -l | tr -d ' '
 }
 
 run_remote_ledger_bearings() {  # <parent-home> <fakebin> <epoch>
@@ -3232,8 +3239,10 @@ test_remote_ledgers_share_one_concurrent_budget_and_fall_back_to_cache() {
   : > "$parent/ledger-pids.log"
 
   json=$(run_remote_ledger_bearings "$parent" "$fakebin" 1100)
-  [ "$(wc -l < "$parent/ledger-calls.log" | tr -d ' ')" -eq 5 ] \
-    || fail "a healthy snapshot did not issue exactly one remote file read per home"
+  [ "$(ledger_reads "$parent/ledger-calls.log" state/home-summary.json)" -eq 5 ] \
+    || fail "a healthy snapshot did not issue exactly one remote summary read per home"
+  [ "$(ledger_reads "$parent/ledger-calls.log" state/vps-lane-status.json)" -eq 5 ] \
+    || fail "a healthy snapshot did not issue exactly one remote lane-status read per home"
   printf '%s' "$json" | jq -e '
     (.secondmates | length) == 5
       and all(.secondmates[]; .freshness == "fresh" and .age_seconds == 100)
@@ -3304,7 +3313,7 @@ EOF
     ([.secondmates[] | select(.id == "ledger-1" and .freshness == "cached" and .age_seconds == 100)] | length) == 1
       and ([.secondmates[] | select(.id != "ledger-1" and .freshness == "fresh")] | length) == 4
   ' >/dev/null || fail "a multi-document live ledger bypassed the valid cache: $json"
-  [ "$(wc -l < "$parent/ledger-calls.log" | tr -d ' ')" -eq 5 ] \
+  [ "$(ledger_reads "$parent/ledger-calls.log" state/home-summary.json)" -eq 5 ] \
     || fail "rejecting a multi-document live ledger added remote reads"
   mv "$duplicate_base" "$TMP_ROOT/remote-ledger-home-1/state/home-summary.json"
 
@@ -3315,7 +3324,7 @@ EOF
     ([.secondmates[] | select(.id == "ledger-1" and .freshness == "cached")] | length) == 1
       and ([.secondmates[] | select(.id != "ledger-1" and .freshness == "fresh")] | length) == 4
   ' >/dev/null || fail "an unbounded primary ledger stream consumed the shared collector budget: $json"
-  [ "$(wc -l < "$parent/ledger-calls.log" | tr -d ' ')" -eq 5 ] \
+  [ "$(ledger_reads "$parent/ledger-calls.log" state/home-summary.json)" -eq 5 ] \
     || fail "bounding one faulty primary ledger added remote reads"
   rm -f "$TMP_ROOT/remote-ledger-home-1/state/unbounded-ledger-read"
 
@@ -3365,8 +3374,8 @@ EOF
         and .age_seconds == 1000 and .provenance == "structured-home-cache")] | length) == 1
       and ([.omitted[] | select(.surface == "secondmate ledger-1 served from cached home ledger")] | length) == 1
   ' >/dev/null || fail "one slow home prevented four fresh rows or hid its cache disclosure: $json"
-  [ "$(wc -l < "$parent/ledger-calls.log" | tr -d ' ')" -eq 5 ] \
-    || fail "the mixed-speed snapshot made more than one remote read per ledger home"
+  [ "$(ledger_reads "$parent/ledger-calls.log" state/home-summary.json)" -eq 5 ] \
+    || fail "the mixed-speed snapshot made more than one remote summary read per ledger home"
   pass "remote ledgers collect concurrently under one budget, reuse aged cache, and cancel wedged collectors"
 }
 
@@ -3388,9 +3397,9 @@ test_a_remote_home_without_any_ledger_is_explicitly_unreadable_without_remote_co
       and (.secondmates[0].reason | contains("home ledger is missing, unreadable, or invalid"))
       and (.omitted | any(.surface == "secondmate home(s) with unreadable structured state: 1"))
   ' >/dev/null || fail "a no-ledger remote home was not explicitly disclosed as unreadable: $json"
-  [ "$(wc -l < "$parent/ledger-calls.log" | tr -d ' ')" -eq 1 ] \
-    || fail "a no-ledger remote home issued more than its single ledger read"
-  [ "$(awk -F '\t' 'NR == 1 { print $2 }' "$parent/ledger-calls.log")" = "fm-remote-file.sh" ] \
+  [ "$(wc -l < "$parent/ledger-calls.log" | tr -d ' ')" -eq 2 ] \
+    || fail "a no-ledger remote home issued more than its two bounded file reads"
+  [ "$(awk -F '\t' '$2 != "fm-remote-file.sh"' "$parent/ledger-calls.log" | wc -l | tr -d ' ')" -eq 0 ] \
     || fail "a no-ledger remote home triggered remote summary computation: $(cat "$parent/ledger-calls.log")"
   pass "a missing remote ledger stays explicitly unreadable without remote summary computation"
 }

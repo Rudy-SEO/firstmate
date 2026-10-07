@@ -494,6 +494,12 @@ __FM_BEARINGS_BOARD_DATA__
       top.appendChild(badge(item.risk === "low" ? "neutral" : "warn", "risk " + item.risk));
     } else {
       top.appendChild(badge("solid", "decision"));
+      if (item.owner) {
+        /* a decision another home owns: the answer is routed back there */
+        var ob = badge("info", "second mate " + item.owner);
+        ob.title = "This call is owned by the " + item.owner + " home; your answer is routed back to it.";
+        top.appendChild(ob);
+      }
       top.appendChild(el("span", "bb-decision__repo", item.repo));
     }
     pad.appendChild(top);
@@ -624,6 +630,16 @@ __FM_BEARINGS_BOARD_DATA__
   /* Underway */
   var uw = document.getElementById("bb-underway");
   if (!data.underway.length) uw.appendChild(el("div", "bb-empty", "Nothing is underway."));
+  /* a row sourced from a home's verified lane-status document gets a badge
+     naming the verification time, so verified truth reads differently from a
+     recorded projection */
+  function verifiedBadge(t) {
+    if (!t.source) return null;
+    var vb = badge("info", "verified" + (t.as_of ? " " + t.as_of.replace("T", " ").replace(":00Z", "Z") : ""));
+    vb.title = t.source + (t.as_of ? " · as of " + t.as_of : "");
+    return vb;
+  }
+
   data.underway.forEach(function (t) {
     var row = el("div", "bb-row");
     row.appendChild(badge(t.state === "working" ? "online" : "info", t.state));
@@ -636,6 +652,8 @@ __FM_BEARINGS_BOARD_DATA__
     main.appendChild(el("div", "bb-row__sub",
       t.doing + " · " + t.kind + " · " + (t.repo || t.id)));
     row.appendChild(main);
+    var uvb = verifiedBadge(t);
+    if (uvb) row.appendChild(uvb);
     uw.appendChild(row);
   });
 
@@ -703,6 +721,8 @@ __FM_BEARINGS_BOARD_DATA__
     var chSub = t.repo || t.id;
     main.appendChild(el("div", "bb-row__sub", t.reason ? t.reason + " · " + chSub : chSub));
     row.appendChild(main);
+    var cvb = verifiedBadge(t);
+    if (cvb) row.appendChild(cvb);
     if (isWarning(t)) row.appendChild(badge("danger", "needs repair"));
     else if (t.reason) row.appendChild(badge("warn", "waiting"));
     ch.appendChild(row);

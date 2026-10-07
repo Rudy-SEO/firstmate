@@ -6,7 +6,23 @@
 #   fm-secondmate-reconcile.sh request --snapshot <file>|-
 #   fm-secondmate-reconcile.sh process-requests
 #   fm-secondmate-reconcile.sh notify [--snapshot <file>|-]
-#   fm-secondmate-reconcile.sh nudged <mate-id>
+#   fm-secondmate-reconcile.sh nudged <mate-id> [--lane-status]
+#
+# Two target kinds share this one durable request queue, cooldown shape, and
+# delivery plane:
+#   - the backlog-vs-metadata inventory mismatch kinds (orphan_in_flight,
+#     unowned_current, terminal_in_flight), the original reconcile ask;
+#   - lane_status_stale, recorded when a home's published verified lane-status
+#     document (state/vps-lane-status.json, docs/vps-lane-status.md) is stale
+#     or invalid (the snapshot's lane_status.refresh_due flag, or a bearings
+#     secondmate_reconcile row carrying that kind). Its instruction asks the
+#     home to re-query its verified sources read-only and republish; no reply
+#     is expected and republication itself is the answer.
+# Each kind keeps its own per-home cooldown stamp and pending request file, so
+# a lane refresh neither consumes nor delays an inventory reconcile ask:
+# lane refreshes use FM_LANE_REFRESH_COOLDOWN_SECONDS (one hour) against
+# state/<id>.lane-refresh-nudged, inventory reconciles keep the original
+# four-hour window against state/<id>.reconcile-nudged.
 #
 # This is a BACKSTOP, not the primary mechanism. Dispatch and completion pair
 # the backlog row with the task's record inside the one script that moves the
@@ -94,9 +110,15 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 
 # One nudge per home per four hours.
 FM_RECONCILE_COOLDOWN_SECONDS=${FM_RECONCILE_COOLDOWN_SECONDS:-14400}
+# One lane refresh ask per home per hour; staleness is noisier than a books
+# mismatch and the ask is cheaper to satisfy.
+FM_LANE_REFRESH_COOLDOWN_SECONDS=${FM_LANE_REFRESH_COOLDOWN_SECONDS:-3600}
 FM_RECONCILE_REQUEST_MAX_BYTES=${FM_RECONCILE_REQUEST_MAX_BYTES:-1048576}
 case "$FM_RECONCILE_COOLDOWN_SECONDS" in
   ''|*[!0-9]*) echo "fm-secondmate-reconcile: FM_RECONCILE_COOLDOWN_SECONDS must be a whole number of seconds" >&2; exit 2 ;;
+esac
+case "$FM_LANE_REFRESH_COOLDOWN_SECONDS" in
+  ''|*[!0-9]*) echo "fm-secondmate-reconcile: FM_LANE_REFRESH_COOLDOWN_SECONDS must be a whole number of seconds" >&2; exit 2 ;;
 esac
 case "$FM_RECONCILE_REQUEST_MAX_BYTES" in
   ''|*[!0-9]*|0) echo "fm-secondmate-reconcile: FM_RECONCILE_REQUEST_MAX_BYTES must be a positive whole number" >&2; exit 2 ;;
@@ -125,20 +147,27 @@ usage() {
 usage: fm-secondmate-reconcile.sh request --snapshot <file>|-
        fm-secondmate-reconcile.sh process-requests
        fm-secondmate-reconcile.sh notify [--snapshot <file>|-]
-       fm-secondmate-reconcile.sh nudged <mate-id>
+       fm-secondmate-reconcile.sh nudged <mate-id> [--lane-status]
 
 request  accept exactly one captured snapshot and atomically publish at most
-         one pending request per stable reconcile target id for later supervision
+         one pending request per stable target id and kind for later supervision
          delivery. Newer payloads replace that target's pending request without
          disturbing other targets. It never sends or takes mate lifecycle locks.
+         Targets are inventory-mismatch homes (orphan_in_flight,
+         unowned_current, terminal_in_flight) and homes whose verified
+         lane-status document is due a refresh (lane_status_stale).
 process-requests
          deliver and retire durable requests. Intended for the watcher loop;
          skipped or failed requests stay queued for a later pass.
 notify   ask every secondmate home whose backlog disagrees with its own task
-         metadata to reconcile it, at most once per home per cooldown window.
+         metadata to reconcile it, and every home whose lane-status document is
+         stale or invalid to re-query and republish it, at most once per home
+         per kind per cooldown window (FM_RECONCILE_COOLDOWN_SECONDS and
+         FM_LANE_REFRESH_COOLDOWN_SECONDS).
          Reads an fm-fleet-snapshot.v1 or fm-bearings.v1 document from
          --snapshot (or runs fm-fleet-snapshot.sh --json when omitted).
-nudged   print the epoch second of the last reconcile nudge sent to <mate-id>.
+nudged   print the epoch second of the last reconcile nudge sent to <mate-id>;
+         --lane-status prints the lane refresh stamp instead.
 EOF
 }
 
@@ -146,6 +175,10 @@ fail() { echo "fm-secondmate-reconcile: $*" >&2; exit 2; }
 
 nudge_path() {  # <mate-id>
   printf '%s/%s.reconcile-nudged\n' "$STATE" "$1"
+}
+
+lane_nudge_path() {  # <mate-id>
+  printf '%s/%s.lane-refresh-nudged\n' "$STATE" "$1"
 }
 
 meta_field() {  # <meta-file> <key>
@@ -188,11 +221,22 @@ revalidate_identity() {  # <meta> <sampled_spawn_gen> <sampled_host>
 }
 
 cmd_nudged() {
-  local id path
-  [ "$#" -eq 1 ] || { usage >&2; exit 2; }
-  id=$1
-  case "$id" in ''|*/*|.*) fail "not a task id: $id" ;; esac
-  path=$(nudge_path "$id")
+  local id='' lane=0 path
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --lane-status) lane=1 ;;
+      -*) usage >&2; exit 2 ;;
+      *) [ -z "$id" ] || { usage >&2; exit 2; }; id=$1 ;;
+    esac
+    shift
+  done
+  [ -n "$id" ] || { usage >&2; exit 2; }
+  case "$id" in */*|.*) fail "not a task id: $id" ;; esac
+  if [ "$lane" -eq 1 ]; then
+    path=$(lane_nudge_path "$id")
+  else
+    path=$(nudge_path "$id")
+  fi
   [ -f "$path" ] && [ ! -L "$path" ] || return 1
   cat "$path"
 }
@@ -222,6 +266,17 @@ Please check your current books and, if they still disagree, reconcile them to m
 EOF
 }
 
+# Like the reconcile instruction, this asks for a current-state check rather
+# than prescribing content: the home re-queries its own verified sources and
+# republishes, and the republished document is the answer.
+lane_refresh_text() {
+  cat <<'EOF'
+A fleet snapshot found your home's published verified lane-status document (state/vps-lane-status.json) stale or invalid.
+
+Please re-query your verified lane sources read-only and republish the document per docs/vps-lane-status.md. Nothing outside your home has been changed, and no reply is expected.
+EOF
+}
+
 request_target_key() {
   local digest
   if command -v shasum >/dev/null 2>&1; then
@@ -248,7 +303,7 @@ request_dir_prepare() {
 }
 
 cmd_request() {
-  local snapshot_src='' tmp bytes targets target id spawn_gen host key pending final published=0
+  local snapshot_src='' tmp bytes targets target id spawn_gen host kind key pending final published=0
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --snapshot) [ "$#" -ge 2 ] || fail "--snapshot needs a value"; snapshot_src=$2; shift 2 ;;
@@ -287,11 +342,13 @@ cmd_request() {
     if .schema == "fm-bearings.v1" then
       any((.secondmate_reconcile // [])[];
         .kind as $kind
-        | ["orphan_in_flight","unowned_current","terminal_in_flight"] | index($kind))
+        | ((["orphan_in_flight","unowned_current","terminal_in_flight"] | index($kind)) != null)
+          or $kind == "lane_status_stale")
     else
       any((.secondmate_current.records // [])[];
-        .reconcile_inventory as $inv
-        | ["orphan_in_flight","unowned_current","terminal_in_flight"] | index($inv.kind))
+        ((.reconcile_inventory as $inv
+          | ["orphan_in_flight","unowned_current","terminal_in_flight"] | index($inv.kind)) != null)
+        or ((.lane_status // null) != null and (.lane_status.refresh_due // false) == true))
     end
   ' "$tmp" >/dev/null 2>&1; then
     rm -f -- "$tmp"
@@ -299,32 +356,43 @@ cmd_request() {
     return 0
   fi
   targets=$(jq -c '
-    [if .schema == "fm-bearings.v1" then
+    [(if .schema == "fm-bearings.v1" then
        (.secondmate_reconcile // [])[]
        | {id,spawn_gen:(.spawn_gen // ""),host:(.host // ""),kind:(.kind // "")}
      else
-       (.secondmate_current.records // [])[]
-       | {id,spawn_gen:(.spawn_gen // ""),host:(.host // ""),kind:(.reconcile_inventory.kind // "")}
-     end
+       ((.secondmate_current.records // [])[]
+        | {id,spawn_gen:(.spawn_gen // ""),host:(.host // ""),kind:(.reconcile_inventory.kind // "")}),
+       ((.secondmate_current.records // [])[]
+        | select((.lane_status // null) != null and (.lane_status.refresh_due // false) == true)
+        | {id,spawn_gen:(.spawn_gen // ""),host:(.host // ""),kind:"lane_status_stale"})
+     end)
      | select((.id | type) == "string" and (.id | test("^[A-Za-z0-9._-]+$")))
      | select((.spawn_gen | type) == "string" and (.spawn_gen | test("^[A-Za-z0-9._-]*$")))
      | select((.host | type) == "string" and (.host | test("[[:cntrl:]]") | not))
      | .kind as $kind
-     | select(["orphan_in_flight","unowned_current","terminal_in_flight"] | index($kind))]
-    | unique_by([.id,.spawn_gen,.host])[]
+     | select(((["orphan_in_flight","unowned_current","terminal_in_flight"] | index($kind)) != null)
+              or $kind == "lane_status_stale")]
+    | unique_by([.id,.spawn_gen,.host,.kind])[]
   ' "$tmp") || { rm -f -- "$tmp"; fail "cannot identify reconcile notify targets"; }
   while IFS= read -r target; do
     [ -n "$target" ] || continue
     id=$(printf '%s' "$target" | jq -r '.id') || continue
     spawn_gen=$(printf '%s' "$target" | jq -r '.spawn_gen') || continue
     host=$(printf '%s' "$target" | jq -r '.host') || continue
-    key=$(request_target_key "$id") \
+    kind=$(printf '%s' "$target" | jq -r '.kind') || continue
+    # Each kind coalesces independently so a lane refresh can neither replace
+    # nor be replaced by a pending inventory reconcile for the same home.
+    case "$kind" in
+      lane_status_stale) key=$(request_target_key "$id:lane-status") ;;
+      *) key=$(request_target_key "$id") ;;
+    esac
+    [ -n "${key:-}" ] \
       || { rm -f -- "$tmp"; fail "cannot identify reconcile notify target"; }
     pending=$(umask 077; mktemp "$REQUEST_DIR/.request.XXXXXX") \
       || { rm -f -- "$tmp"; fail "cannot create a reconcile notify request"; }
-    if ! jq -c --arg id "$id" --arg spawn_gen "$spawn_gen" --arg host "$host" '
+    if ! jq -c --arg id "$id" --arg spawn_gen "$spawn_gen" --arg host "$host" --arg kind "$kind" '
       if .schema == "fm-bearings.v1" then
-        .secondmate_reconcile |= map(select(.id == $id and (.spawn_gen // "") == $spawn_gen and (.host // "") == $host))
+        .secondmate_reconcile |= map(select(.id == $id and (.spawn_gen // "") == $spawn_gen and (.host // "") == $host and (.kind // "") == $kind))
       else
         .secondmate_current.records |= map(select(.id == $id and (.spawn_gen // "") == $spawn_gen and (.host // "") == $host))
       end
@@ -448,22 +516,37 @@ cmd_notify() {
        (.secondmate_reconcile // [])[]
        | {id, spawn_gen:(.spawn_gen // ""), host:(.host // ""), kind:(.kind // ""), ids:(.ids // [])}
      else
-       (.secondmate_current.records // [])[]
-       | select(.reconcile_inventory != null)
-       | {id, spawn_gen:(.spawn_gen // ""), host:(.host // ""), kind:(.reconcile_inventory.kind // ""), ids:(.reconcile_inventory.ids // [])}
+       ((.secondmate_current.records // [])[]
+        | select(.reconcile_inventory != null)
+        | {id, spawn_gen:(.spawn_gen // ""), host:(.host // ""), kind:(.reconcile_inventory.kind // ""), ids:(.reconcile_inventory.ids // [])}),
+       ((.secondmate_current.records // [])[]
+        | select((.lane_status // null) != null and (.lane_status.refresh_due // false) == true)
+        | {id, spawn_gen:(.spawn_gen // ""), host:(.host // ""), kind:"lane_status_stale", ids:[]})
      end)
     | select((.id | type) == "string" and (.id | test("^[A-Za-z0-9._-]+$")))
     | select((.spawn_gen | type) == "string" and (.spawn_gen | test("^[A-Za-z0-9._-]*$")))
     | select((.host | type) == "string" and (.host | test("[[:cntrl:]]") | not))
     | .kind as $kind
-    | select(["orphan_in_flight","unowned_current","terminal_in_flight"] | index($kind))
+    | select(((["orphan_in_flight","unowned_current","terminal_in_flight"] | index($kind)) != null)
+             or $kind == "lane_status_stale")
     | [.id, .spawn_gen, .host, $kind]
     | join($sep)')
 
-  local id sampled_spawn_gen sampled_host expected_remote_host kind path last age now delivered_at reconcile_lock control_lock meta meta_lock did send_rc
+  local id sampled_spawn_gen sampled_host expected_remote_host kind path last age now delivered_at reconcile_lock control_lock meta meta_lock did send_rc cooldown send_text
   while IFS=$'\037' read -r id sampled_spawn_gen sampled_host kind; do
     [ -n "${id:-}" ] || continue
-    path=$(nudge_path "$id")
+    case "$kind" in
+      lane_status_stale)
+        path=$(lane_nudge_path "$id")
+        cooldown=$FM_LANE_REFRESH_COOLDOWN_SECONDS
+        send_text=$(lane_refresh_text)
+        ;;
+      *)
+        path=$(nudge_path "$id")
+        cooldown=$FM_RECONCILE_COOLDOWN_SECONDS
+        send_text=$(reconcile_text)
+        ;;
+    esac
     reconcile_lock="$STATE/.$id.reconcile.lock"
     if ! fm_lock_try_acquire "$reconcile_lock"; then
       printf 'skipped: %s lock\n' "$id"
@@ -477,7 +560,7 @@ cmd_notify() {
     if [ -n "$last" ]; then
       age=$((now - last))
       # A clock that moved backwards must not silence the home forever.
-      if [ "$age" -ge 0 ] && [ "$age" -lt "$FM_RECONCILE_COOLDOWN_SECONDS" ]; then
+      if [ "$age" -ge 0 ] && [ "$age" -lt "$cooldown" ]; then
         printf 'cooldown: %s %s\n' "$id" "$age"
         release_active_locks
         continue
@@ -512,7 +595,7 @@ cmd_notify() {
       release_active_locks
       continue
     fi
-    did=$(delivery_id "$id:$sampled_spawn_gen:${last:-none}") || {
+    did=$(delivery_id "$id:$kind:$sampled_spawn_gen:${last:-none}") || {
       printf 'failed: %s %s\n' "$id" "$kind"
       rc=1
       release_active_locks
@@ -525,7 +608,7 @@ cmd_notify() {
     FM_TASK_INBOX_LOCK_WAIT_SECS=0 FM_SEND_EXPECTED_SPAWN_GEN="$sampled_spawn_gen" \
       FM_SEND_EXPECTED_REMOTE_HOST="$expected_remote_host" \
       "$SCRIPT_DIR/fm-send.sh" "$id" --fire-and-forget "$did" \
-      "$(reconcile_text)" >/dev/null 2>&1 || send_rc=$?
+      "$send_text" >/dev/null 2>&1 || send_rc=$?
     # exit 3 is "typed but unconfirmed": the mate may already hold the ask, so
     # record the nudge rather than risk asking twice.
     if [ "$send_rc" -ne 0 ] && [ "$send_rc" -ne 3 ]; then
