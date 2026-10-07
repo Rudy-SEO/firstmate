@@ -1,0 +1,25 @@
+$ printf "morgan/ms9-owner	use-the-watcher	Owner card answer
+" | bin/fm-captain-hold.sh answers --source "owner-scoped live drive"
+skipped: morgan/ms9-owner (owner-scoped key: route the answer to its owning home)
+answers: closed=0 skipped=1
+(exit 1)
+
+$ tasks-axi show ms9-owner --full   # the same-id MAIN-home hold must be untouched
+task:
+  id: ms9-owner
+  title: Main-home task sharing the owned id
+  state: queued
+  blocked: no
+  blocked_by: none
+  held: yes
+  hold_reason: "fm-hold-v1:bWFpbi1ob21lIGNhbGwgd2l0aCBhIGNvbGxpZGluZyBpZA=="
+  hold_kind: captain
+  hold_until: "-"
+  kind: ship
+  repo: sample
+  priority: "-"
+  created: 2026-10-07
+  closed: "-"
+  deps: none
+  links: none
+  body: "Captain hold set: 2026-10-07T18:34:35Z"

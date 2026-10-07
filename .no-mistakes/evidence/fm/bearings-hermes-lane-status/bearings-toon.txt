@@ -1,0 +1,47 @@
+schema: fm-bearings.v1
+home: fm-live-fixture/parent
+generated: "2026-10-07T16:00:00Z"
+prs: "not_requested (run: /bearings include PRs)"
+contributions: 
+  scope: owned contributions per home
+  known: 0
+  checked: 0
+  counts: 
+    captain: 0
+    fleet: 0
+    maintainer: 0
+    nobody: 0
+  complete: true
+  proven_clear: true
+  unmeasured_homes: 0
+  unreadable_records: 0
+  unmeasured: 0
+  stale_verdicts: 0
+  missing_verdicts: 0
+  captain_omitted: 0
+  captain: []
+in_flight[1]{id,kind,state,repo,name,doing,source,as_of}:
+  morgan/lane-provider-migration,vps-lane,working,null,Provider migration program,verified 31m ago,verified-lane-status,"2026-10-07T15:29:00Z"
+secondmates[1]{id,state,doing,provenance,freshness,age_seconds,contradiction,reason,lane}:
+  morgan,captain_decision,MS-9 reply-detection seam owner; MS-9 sibling decision; Item 7 billing cutover approval; Item 9 provider key rotation ap…,structured-home,fresh,0,false,"-",fresh (30m)
+secondmate_reconcile[1]{id,spawn_gen,host,kind,ids}:
+  morgan,null,null,null,"[]"
+decisions_open[4]{id,key,verb,summary,owner,detail,route_key}:
+  morgan/ms9-owner,ms9-owner,captain-hold,"MS-9 reply-detection seam owner: decide the reply-detection read seam owner",morgan,"Captain hold set: 2026-10-06 Items 4 and 6: pick the reply-detection read seam owner and whether SUPERSEDED drafts are marked by the watcher or the composer.",captain-hold-ms9-owner-1
+  morgan/ms9-owner-x,ms9-owner-x,captain-hold,"MS-9 sibling decision: sibling call sharing a hyphenated id prefix",morgan,"Captain hold set: 2026-10-06",captain-hold-ms9-owner-x-1
+  morgan/ms-gates-item7,ms-gates-item7,captain-hold,"Item 7 billing cutover approval: approve the billing cutover window for item 7",morgan,"Captain hold set: 2026-10-06 Approve cutting billing over during the Tuesday low-traffic window, or hold for the following week.",captain-hold-ms-gates-item7-1
+  morgan/ms-gates-item9,ms-gates-item9,captain-hold,"Item 9 provider key rotation approval: approve rotating the provider API keys before migra…",morgan,"Captain hold set: 2026-10-06 Rotating now invalidates the old keys immediately; waiting couples rotation to the migration deploy.",captain-hold-ms-gates-item9-1
+landed: []
+gates[1]{id,title,blocked_by,reason,owner,filed,source}:
+  morgan/lane-billing-cutover,Billing cutover,"item-7 approval,item-9 approval",blocked; approval pending; verified 31m …,morgan,"2026-10-07T15:29:00Z",verified-lane-status
+reports: []
+recorded_prs: []
+unhealthy_endpoints[1]{id,backend,target,exists,agent}:
+  morgan,tmux,"firstmate:fm-morgan",false,unknown
+omitted[6]{surface,reveal}:
+  backlog item bodies,"--fields bodies"
+  task paths,"--fields paths"
+  watch/steer actions,"--fields actions"
+  healthy endpoint detail,"--fields endpoints"
+  full scout-report inventory,"--all-reports"
+  live PR discovery + checks,"--include-prs"

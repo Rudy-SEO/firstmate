@@ -1,0 +1,76 @@
+{
+  "verified_underway": [
+    {
+      "id": "morgan/lane-provider-migration",
+      "kind": "vps-lane",
+      "state": "working",
+      "repo": null,
+      "name": "Provider migration program",
+      "doing": "verified 31m ago",
+      "source": "verified-lane-status",
+      "as_of": "2026-10-07T15:29:00Z"
+    }
+  ],
+  "verified_gates": [
+    {
+      "id": "morgan/lane-billing-cutover",
+      "title": "Billing cutover",
+      "blocked_by": "item-7 approval,item-9 approval",
+      "reason": "blocked; approval pending; verified 31m …",
+      "owner": "morgan",
+      "filed": "2026-10-07T15:29:00Z",
+      "source": "verified-lane-status"
+    }
+  ],
+  "decisions_open": [
+    {
+      "id": "morgan/ms9-owner",
+      "key": "ms9-owner",
+      "verb": "captain-hold",
+      "summary": "MS-9 reply-detection seam owner: decide the reply-detection read seam owner",
+      "owner": "morgan",
+      "detail": "Captain hold set: 2026-10-06 Items 4 and 6: pick the reply-detection read seam owner and whether SUPERSEDED drafts are marked by the watcher or the composer.",
+      "route_key": "captain-hold-ms9-owner-1"
+    },
+    {
+      "id": "morgan/ms9-owner-x",
+      "key": "ms9-owner-x",
+      "verb": "captain-hold",
+      "summary": "MS-9 sibling decision: sibling call sharing a hyphenated id prefix",
+      "owner": "morgan",
+      "detail": "Captain hold set: 2026-10-06",
+      "route_key": "captain-hold-ms9-owner-x-1"
+    },
+    {
+      "id": "morgan/ms-gates-item7",
+      "key": "ms-gates-item7",
+      "verb": "captain-hold",
+      "summary": "Item 7 billing cutover approval: approve the billing cutover window for item 7",
+      "owner": "morgan",
+      "detail": "Captain hold set: 2026-10-06 Approve cutting billing over during the Tuesday low-traffic window, or hold for the following week.",
+      "route_key": "captain-hold-ms-gates-item7-1"
+    },
+    {
+      "id": "morgan/ms-gates-item9",
+      "key": "ms-gates-item9",
+      "verb": "captain-hold",
+      "summary": "Item 9 provider key rotation approval: approve rotating the provider API keys before migra…",
+      "owner": "morgan",
+      "detail": "Captain hold set: 2026-10-06 Rotating now invalidates the old keys immediately; waiting couples rotation to the migration deploy.",
+      "route_key": "captain-hold-ms-gates-item9-1"
+    }
+  ],
+  "secondmates": [
+    {
+      "id": "morgan",
+      "state": "captain_decision",
+      "doing": "MS-9 reply-detection seam owner; MS-9 sibling decision; Item 7 billing cutover approval; Item 9 provider key rotation ap…",
+      "provenance": "structured-home",
+      "freshness": "fresh",
+      "age_seconds": 0,
+      "contradiction": false,
+      "reason": "-",
+      "lane": "fresh (30m)"
+    }
+  ]
+}
