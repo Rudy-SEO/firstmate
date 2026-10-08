@@ -4,8 +4,9 @@
 //
 // Usage: node board-render-harness.mjs <built-board.html>
 // Prints one JSON document:
-//   { stats:[{n,label}], underway:[{title,sub,badges}],
-//     charted:[{title,sub,badges,pickable}], empty, more, error }
+//   { stats:[{n,label}], call:[{title,badges}], call_sub,
+//     underway:[{title,sub,badges}], charted:[{title,sub,badges,pickable}],
+//     empty, more, error }
 import { readFileSync } from "node:fs";
 
 const html = readFileSync(process.argv[2], "utf8");
@@ -26,7 +27,17 @@ class Node {
     this.checked = false;
     this.classList = {
       add: (c) => { this.className = (this.className + " " + c).trim(); },
+      remove: (c) => {
+        this.className = this.className.split(/\s+/).filter((x) => x !== c).join(" ");
+      },
       contains: (c) => this.className.split(/\s+/).includes(c),
+      toggle: (c, force) => {
+        const has = this.classList.contains(c);
+        const want = force === undefined ? !has : !!force;
+        if (want && !has) this.classList.add(c);
+        if (!want && has) this.classList.remove(c);
+        return want;
+      },
     };
   }
   get textContent() {
@@ -108,6 +119,16 @@ const rowsOf = (container) =>
       };
     });
 
+const callDeck = byId.get("bb-call") || new Node("div");
+const call = callDeck.children
+  .filter((c) => c.className.split(/\s+/).includes("bb-decision"))
+  .map((card) => ({
+    title: card.querySelectorAll(".bb-decision__title")[0]?.textContent ?? "",
+    badges: card.querySelectorAll(".fm-badge")
+      .map((b) => ({ tone: b.className.replace(/.*fm-badge--/, "").trim(), text: b.textContent })),
+  }));
+const callSub = (byId.get("bb-call-sub") || new Node("span")).textContent;
+
 const uw = byId.get("bb-underway") || new Node("div");
 const underway = rowsOf(uw);
 
@@ -123,4 +144,5 @@ const empty = ch.children.filter((c) => c.className.includes("bb-empty")).map((c
 const more = ch.children.filter((c) => c.className.includes("bb-morechip")).map((c) => c.textContent);
 
 process.stdout.write(
-  JSON.stringify({ stats, underway, charted, empty, more, error: errorText }) + "\n");
+  JSON.stringify({ stats, call, call_sub: callSub,
+    underway, charted, empty, more, error: errorText }) + "\n");

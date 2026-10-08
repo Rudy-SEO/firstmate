@@ -116,6 +116,23 @@ render() {  # <home> <charted-json> [charted_more] [charted_warning_more]
   render_board "$1" '[]' "$2" "${3:-0}" "${4:-0}"
 }
 
+# Build the board from <captains-call-json> and return what the renderer produced.
+render_call() {  # <home> <captains-call-json>
+  local home=$1 call=$2 data="$1/payload.json"
+  jq -n --argjson call "$call" '{
+    schema:"fm-bearings-board.v1", home:"render-home", generated:"2026-10-08T00:00Z",
+    prs_live:false, captains_call:$call, underway:[], landed:[],
+    charted:[]}' > "$data"
+  PATH="$home/fakebin:$PATH" FM_HOME="$home" \
+    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+    FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
+    LAVISH_AXI_STATE_DIR="$home/lavish-state" \
+    "$BOARD" build "$data" >/dev/null || fail "the board did not build"
+  require_listener_reached_poll "$home"
+  node "$HARNESS" "$home/.lavish/bearings-board.html" \
+    || fail "the built board could not be rendered"
+}
+
 charted_next_count() {  # <render-json>
   printf '%s' "$1" | jq -r '.stats[] | select(.label == "charted next") | .n'
 }
@@ -266,6 +283,30 @@ test_charted_rows_without_a_filed_date_follow_the_dated_rows_in_payload_order() 
   pass "charted rows with no filed date follow the dated rows in payload order"
 }
 
+# The 1:1 rule: every open decision is its own separately answerable card, and
+# the needs-you tally is exactly the card count - no combined cards, no
+# disclosed gap standing in for a missing card.
+test_each_open_decision_cards_as_its_own_separate_card() {
+  local home out
+  home=$(make_home one-card-per-call)
+  out=$(render_call "$home" '[
+    {"key":"ms-gates-rollout","type":"decision","repo":"ms-gates",
+     "title":"Gate rollout","about":"evidence: the gates review","decide":"Approve the rollout?",
+     "options":[{"value":"yes","label":"Approve","hint":"ships now"},{"value":"no","label":"Adjust"}]},
+    {"key":"ms-gates-retention","type":"decision","repo":"ms-gates",
+     "title":"Gate retention window","decide":"Keep the 30-day window?",
+     "options":[{"value":"yes","label":"Keep"},{"value":"no","label":"Shorten"}]}
+  ]')
+  printf '%s' "$out" | jq -e '.error == ""' >/dev/null \
+    || fail "the board rendered its fail-closed error instead of the deck: $out"
+  printf '%s' "$out" | jq -e '
+    ([.call[] | .title] == ["Gate rollout", "Gate retention window"])
+      and ([.stats[] | select(.label == "need you") | .n] == [2])
+      and (.call_sub == "2 items wait on you, captain")
+  ' >/dev/null || fail "two open decisions did not card as two separate decisions: $out"
+  pass "each open decision cards as its own separate decision with a matching tally"
+}
+
 test_an_underway_row_leads_with_the_task_name_and_keeps_its_run_status
 test_an_underway_identifier_label_is_not_replaced_by_run_status
 test_charted_next_reads_newest_filed_first
@@ -275,3 +316,4 @@ test_warnings_are_excluded_from_the_charted_next_count
 test_a_board_of_only_warnings_still_reports_nothing_queued
 test_omitted_warnings_never_count_as_more_queued
 test_an_omitted_kind_keeps_the_existing_queued_rendering
+test_each_open_decision_cards_as_its_own_separate_card
