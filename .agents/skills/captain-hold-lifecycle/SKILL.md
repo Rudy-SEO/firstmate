@@ -21,7 +21,7 @@ For a Lavish board-backed handoff, pass the reply through `bin/fm-procevent-lavi
 Prefer holding the work item the question gates over minting a new row; create a new task only when no work item exists to hold.
 The originating investigation or review is never its own inventory entry, so hold a separate task for the call and pass `--origin <origin-id>` so `complete` can check it.
 Record one captain hold per distinct decision call, so the home's decision set counts one held task per answer the captain owes: a review or packet that surfaces several distinct calls produces one hold per call, never one consolidated hold naming them all.
-Consolidation is how calls get lost: a bundled hold cards as a single board decision, so the captain sees fewer decisions than the home is actually waiting on, and Bearings can only disclose that defect, not repair it.
+Consolidation is how calls get lost: a bundled hold never cards as a board decision at all - Bearings surfaces it only as a re-record notice - so none of its calls is answerable until this home re-records one hold per call.
 Two questions are one call only when a single answer necessarily settles both; needing to number separate items inside one hold reason means they are distinct calls to record separately.
 When several distinct calls would land on one work item, hold that work item for the one call that gates it and create a separate task per additional call.
 Write each hold reason as a self-contained per-decision packet: the one plain question, the options with their trade-offs, the recommendation, the evidence behind it, and the explicit ask to approve or adjust.

@@ -377,53 +377,6 @@ test_build_accepts_owner_and_verified_lane_fields() {
   pass "build accepts owner and verified lane fields and keeps them in the board"
 }
 
-# The per-decision diagnostics: a decision card may declare that its one hold
-# bundles several distinct calls, and the payload may disclose open decisions
-# it could not card, so the board flags divergence from the fleet's open
-# decision set instead of silently under-reporting it.
-test_per_decision_diagnostics_validate_and_round_trip() {
-  local home data board rc out payload
-  home=$(make_home diagnostics)
-  board="$home/.lavish/bearings-board.html"
-  data="$home/payload.json"
-
-  write_valid_payload "$data"
-  jq '.captains_call[0].bundled = 1' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
-  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
-  [ "$rc" -ne 0 ] || fail "a bundled count below 2 was accepted"
-
-  write_valid_payload "$data"
-  jq '.captains_call[0].bundled = 2.5' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
-  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
-  [ "$rc" -ne 0 ] || fail "a non-integer bundled count was accepted"
-
-  write_valid_payload "$data"
-  jq '.captains_call[1].bundled = 2' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
-  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
-  [ "$rc" -ne 0 ] || fail "a bundled count on a non-decision card was accepted"
-
-  write_valid_payload "$data"
-  jq '.call_more = -1' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
-  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
-  [ "$rc" -ne 0 ] || fail "a negative uncarded-decision count was accepted"
-
-  write_valid_payload "$data"
-  jq '.call_more = 1.5' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
-  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
-  [ "$rc" -ne 0 ] || fail "a non-integer uncarded-decision count was accepted"
-  assert_absent "$board" "a refused diagnostics payload still produced a board"
-
-  write_valid_payload "$data"
-  jq '.captains_call[0].bundled = 3 | .call_more = 2' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
-  run_board "$home" build "$data" >/dev/null 2>&1 \
-    || fail "a payload with valid bundled and call_more diagnostics was refused"
-  payload=$(extract_payload "$board")
-  printf '%s' "$payload" | jq -e '
-    .captains_call[0].bundled == 3 and .call_more == 2
-  ' >/dev/null || fail "the built board lost the per-decision diagnostics"
-  pass "per-decision diagnostics validate fail-closed and survive the build"
-}
-
 test_build_injects_binds_then_arms() {
   local home data board out sid
   home=$(make_home build)
@@ -887,7 +840,6 @@ test_build_refuses_a_nondecision_reconcile_value() {
 test_path_is_stable_and_home_scoped
 test_build_refuses_malformed_payloads_before_touching_the_board
 test_build_accepts_owner_and_verified_lane_fields
-test_per_decision_diagnostics_validate_and_round_trip
 test_charted_kind_is_optional_and_accepts_both_values
 test_build_injects_binds_then_arms
 test_registration_cannot_consume_before_any_origin_binding

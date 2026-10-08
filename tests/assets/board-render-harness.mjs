@@ -4,7 +4,7 @@
 //
 // Usage: node board-render-harness.mjs <built-board.html>
 // Prints one JSON document:
-//   { stats:[{n,label}], call:[{title,badges,bundle}], call_sub, call_gap,
+//   { stats:[{n,label}], call:[{title,badges}], call_sub,
 //     underway:[{title,sub,badges}], charted:[{title,sub,badges,pickable}],
 //     empty, more, error }
 import { readFileSync } from "node:fs";
@@ -126,12 +126,8 @@ const call = callDeck.children
     title: card.querySelectorAll(".bb-decision__title")[0]?.textContent ?? "",
     badges: card.querySelectorAll(".fm-badge")
       .map((b) => ({ tone: b.className.replace(/.*fm-badge--/, "").trim(), text: b.textContent })),
-    bundle: card.querySelectorAll(".bb-decision__bundle").map((b) => b.textContent),
   }));
 const callSub = (byId.get("bb-call-sub") || new Node("span")).textContent;
-const callGap = (callDeck.parentNode ? callDeck.parentNode.children : [])
-  .filter((c) => c.className.includes("bb-callgap"))
-  .map((c) => c.textContent);
 
 const uw = byId.get("bb-underway") || new Node("div");
 const underway = rowsOf(uw);
@@ -148,5 +144,5 @@ const empty = ch.children.filter((c) => c.className.includes("bb-empty")).map((c
 const more = ch.children.filter((c) => c.className.includes("bb-morechip")).map((c) => c.textContent);
 
 process.stdout.write(
-  JSON.stringify({ stats, call, call_sub: callSub, call_gap: callGap,
+  JSON.stringify({ stats, call, call_sub: callSub,
     underway, charted, empty, more, error: errorText }) + "\n");
