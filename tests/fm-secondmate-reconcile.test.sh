@@ -985,6 +985,90 @@ test_bearings_request_returns_before_remote_delivery_and_supervision_sends_later
   pass "Bearings records locally, returns before a delayed remote queue, and supervision delivers later"
 }
 
+# A fleet snapshot whose one record has clean books but a verified lane-status
+# document due a refresh (stale or invalid); the same shape with due=false is
+# the fresh control.
+write_lane_snapshot() {  # <path> <mate-id> <refresh-due-bool>
+  jq -n --arg id "$2" --argjson due "$3" '{
+    schema:"fm-fleet-snapshot.v1", generated:"2026-10-07T00:00:00Z",
+    secondmate_current:{records:[{
+      id:$id, home:("/tmp/" + $id), spawn_gen:("spawn-" + $id),
+      current:{state:"active_child_work", reason:null},
+      invalidity:{kind:null,ids:[]}, reconcile_inventory:{kind:null,ids:[]},
+      lane_status:{available:true, reason:null, stale:$due, refresh_due:$due},
+      provenance:{selected:"structured-home", trust:"complete"}}]}}' > "$1"
+}
+
+test_a_stale_lane_status_asks_the_mate_to_republish() {
+  local home mate fakebin lane_snap books_snap fresh_snap out
+  { read -r home; read -r mate; read -r fakebin; } < <(make_main_home lane mate)
+  lane_snap="$home/lane.json"
+  books_snap="$home/books.json"
+  fresh_snap="$home/fresh.json"
+  write_lane_snapshot "$lane_snap" mate true
+  write_lane_snapshot "$fresh_snap" mate false
+  write_snapshot "$books_snap" mate '{"kind":"orphan_in_flight","ids":["ghost"]}'
+
+  out=$(run_notify "$home" "$fakebin" lane "$lane_snap") || fail "the lane refresh ask failed: $out"
+  assert_contains "$out" "sent: mate lane_status_stale" \
+    "the lane refresh ask did not report what it sent: $out"
+  assert_contains "$(inbox_text "$home/state" mate)" "republish the document per docs/vps-lane-status.md" \
+    "the instruction did not ask the mate to re-query and republish"
+
+  out=$(run_notify "$home" "$fakebin" lane "$lane_snap") || fail "the repeat lane run failed: $out"
+  assert_contains "$out" "cooldown: mate" \
+    "a repeated stale lane snapshot did not report the cooldown: $out"
+  [ "$(inbox_records "$home/state" mate)" -eq 1 ] \
+    || fail "the cooldown did not stop a duplicate lane refresh ask"
+
+  # A books mismatch is a different kind with its own cooldown stamp, so the
+  # fresh lane nudge must not silence the reconcile ask.
+  out=$(run_notify "$home" "$fakebin" lane "$books_snap") || fail "the books ask after a lane ask failed: $out"
+  assert_contains "$out" "sent: mate orphan_in_flight" \
+    "the lane cooldown wrongly silenced the books reconcile ask: $out"
+  [ "$(inbox_records "$home/state" mate)" -eq 2 ] \
+    || fail "the independent books ask did not land as its own durable record"
+
+  out=$(run_notify "$home" "$fakebin" lane "$fresh_snap") || fail "the fresh-lane run failed: $out"
+  [ -z "$out" ] || fail "a fresh lane document still produced notify output: $out"
+  pass "a stale lane status earns its own cooldown-limited republish ask"
+}
+
+test_lane_and_books_requests_coalesce_independently() {
+  local home snap bearings requests
+  { read -r home; read -r _; read -r _; } < <(make_main_home lane-request mate)
+  snap="$home/both.json"
+  jq -n '{
+    schema:"fm-fleet-snapshot.v1", generated:"2026-10-07T00:00:00Z",
+    secondmate_current:{records:[{
+      id:"mate", home:"/tmp/mate", spawn_gen:"spawn-mate",
+      current:{state:"no_active_work", reason:null},
+      invalidity:{kind:"orphan_in_flight",ids:["ghost"]},
+      reconcile_inventory:{kind:"orphan_in_flight",ids:["ghost"]},
+      lane_status:{available:false, reason:"lane-status document is invalid or oversized", refresh_due:true},
+      provenance:{selected:"structured-home", trust:"partial-structured"}}]}}' > "$snap"
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$home/state" \
+    "$RECONCILE" request --snapshot "$snap" >/dev/null \
+    || fail "a combined books-and-lane snapshot was not accepted"
+  requests=$(find "$home/state/reconcile-notify" -maxdepth 1 -type f -name 'request-*.json' | wc -l | tr -d '[:space:]')
+  [ "$requests" -eq 2 ] \
+    || fail "one home with both conditions did not publish one pending request per kind"
+
+  bearings="$home/bearings.json"
+  jq -n '{
+    schema:"fm-bearings.v1",
+    secondmate_reconcile:[{id:"mate", spawn_gen:"spawn-mate", host:null, kind:"lane_status_stale", ids:[]}]}' > "$bearings"
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$home/state" \
+    "$RECONCILE" request --snapshot "$bearings" >/dev/null \
+    || fail "a bearings lane_status_stale row was not accepted"
+  requests=$(find "$home/state/reconcile-notify" -maxdepth 1 -type f -name 'request-*.json' | wc -l | tr -d '[:space:]')
+  [ "$requests" -eq 2 ] \
+    || fail "a bearings lane row did not coalesce onto the pending lane request"
+  pass "lane and books requests publish and coalesce per target and kind"
+}
+
+test_a_stale_lane_status_asks_the_mate_to_republish
+test_lane_and_books_requests_coalesce_independently
 test_reconcile_request_rejects_an_unbounded_input_without_filling_storage
 test_reconcile_request_requires_one_snapshot_document
 test_reconcile_requests_coalesce_per_target_until_delivery

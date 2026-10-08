@@ -4637,9 +4637,39 @@ test_origin_is_never_its_own_inventory_entry
 test_complete_refuses_an_entry_held_for_another_origin
 test_uninventoried_report_decision_refuses_completion
 test_hold_decodes_a_bare_scalar_body_without_the_nonref_default
+# The bearings board composes a decision another home owns with an
+# owner-scoped <home>/<task> key. `/` cannot appear in a local task id, so the
+# one keyed-answer intake must refuse such a key loudly instead of resolving a
+# same-id LOCAL captain hold, which would swallow the owning home's answer
+# into this home's books.
+test_an_owner_scoped_key_is_loudly_skipped_and_never_resolves_a_local_task() {
+  local home out rc show
+  home=$(make_home owner-scoped-key)
+  tasks_in "$home" add ms9-owner "Main-home task sharing the owned id" \
+    --kind ship --repo sample >/dev/null
+  run_captain "$home" hold ms9-owner --reason "main-home call with a colliding id" >/dev/null \
+    || fail "could not hold the colliding main-home task"
+
+  out=$(printf 'morgan/ms9-owner\tuse-the-watcher\tOwner card answer\n' \
+    | run_captain "$home" answers --source "owner-scoped fixture") && rc=0 || rc=$?
+  [ "$rc" -ne 0 ] || fail "an owner-scoped key was reported resolved"
+  assert_contains "$out" "skipped: morgan/ms9-owner" \
+    "the owner-scoped key was not loudly skipped: $out"
+  assert_contains "$out" "owning home" \
+    "the skip did not point the answer at its owning home: $out"
+  show=$(tasks_in "$home" show ms9-owner --full)
+  assert_contains "$show" "held: yes" \
+    "an owner-scoped answer resolved the same-id main-home hold"
+  if printf '%s' "$show" | grep -q "use-the-watcher"; then
+    fail "the owner answer leaked into the main-home task body"
+  fi
+  pass "an owner-scoped key is loudly skipped and never resolves a same-id local task"
+}
+
 test_retained_body_keeps_its_utf8_bytes
 test_completion_gate_attests_and_transfers
 test_answer_records_and_closes
+test_an_owner_scoped_key_is_loudly_skipped_and_never_resolves_a_local_task
 test_release_frees_held_work
 test_hold_stamp_precedes_hold_visibility
 test_interrupted_answer_preserves_hold_age

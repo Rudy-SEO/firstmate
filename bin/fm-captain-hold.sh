@@ -88,7 +88,11 @@
 # and feeds nothing. A replayed delivery whose answer digest and requested
 # close mode both match the newest record is reported `closed:` and is a no-op;
 # a mode mismatch is skipped. The command exits nonzero when any key was
-# skipped. `--source` is provenance text recorded in the
+# skipped. An owner-scoped `<home>/<task>` key - the form the bearings board
+# composes for a decision another home owns - is always reported `skipped:`
+# with an owner-scoped note and never resolved locally, because `/` cannot
+# appear in a local task id; the bearings skill's board-wake procedure routes
+# that answer to the owning home through the parent decision-answer path. `--source` is provenance text recorded in the
 # durable decision, never a behavior switch: this command has no per-channel
 # branch and no knowledge of chat, review decks, or any transport.
 # Legacy input: an optional positional origin (or a stored concrete-origin
@@ -1347,6 +1351,21 @@ command_answers() {
     label=${rest%%"$tab"*}
     case "$rest" in *"$tab"*) mode=${rest#*"$tab"} ;; *) mode='' ;; esac
     [ -n "${key:-}" ] || continue
+    # An owner-scoped key (<home>/<task>) names a captain call another home
+    # owns: `/` is not legal in a local task id, so it can never resolve here,
+    # and the refusal is loud so the routing channel (the bearings board-wake
+    # procedure) is visibly left holding the answer rather than it silently
+    # vanishing into this home's books.
+    case "$key" in
+      */*)
+        if [ "${#key}" -le 257 ] \
+          && printf '%s' "$key" | LC_ALL=C grep -Eq '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; then
+          printf 'skipped: %s (owner-scoped key: route the answer to its owning home)\n' "$key"
+          skipped=$((skipped + 1))
+        fi
+        continue
+        ;;
+    esac
     case "$key" in *[!A-Za-z0-9._-]*) continue ;; esac
     [ "${#key}" -le 128 ] || continue
     answer=$(sanitize_field "${answer:-}")

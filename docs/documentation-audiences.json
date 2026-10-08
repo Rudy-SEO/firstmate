@@ -529,6 +529,10 @@
       "audience": "operator-current"
     },
     {
+      "path": "docs/vps-lane-status.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": "docs/watcher-continuity.md",
       "audience": "operator-current"
     },

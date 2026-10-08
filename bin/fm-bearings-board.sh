@@ -79,6 +79,21 @@
 # first; a row with no comparable date keeps its payload order after every dated
 # row. Anything else in that field refuses rather than sorting on garbage.
 #
+# An Underway or Charted Next row MAY carry `source` (exactly the one
+# verified provenance label the snapshot composes, "verified-lane-status" -
+# any other string refuses, so no future label can rent the verified badge)
+# and `as_of` (the verification instant, same accepted formats as `filed`);
+# the template then badges the row as verified and shows the as-of time.
+# A decision card MAY carry `owner`, the registered secondmate home id that
+# owns the held task; such a card's `key` MUST be `<owner>/<task-id>` and a
+# mismatched pair refuses. The owner-qualified key is the collision guard:
+# `/` is not legal in a main-home task id, so the keyed-answer intake can
+# never resolve such an answer against a same-id main-home captain hold, and
+# the bearings skill routes the captured answer to the owning home through
+# the parent decision-answer path instead. All of these validate fail-closed;
+# a Charted Next id may carry one `<home>/<lane>` scoping segment for
+# cross-home verified rows.
+#
 # The board path is stable - $FM_HOME/.lavish/bearings-board.html - so a
 # re-invocation rebuilds the same file in place, which keeps the same Lavish
 # session URL and the same canonical process-event source id. Injection escapes
@@ -141,9 +156,21 @@ validate_payload() {  # <data.json>
           and (keys | sort) == ["artifact", "version"]
           and (.artifact | slug(128))
           and (.version | version));
+    def optional_source:
+      (has("source") | not) or (.source == null) or (.source == "verified-lane-status");
+    def optional_as_of:
+      (has("as_of") | not) or (.as_of == null) or (.as_of | valid_filed);
+    def owner_scoped_key:
+      . as $card
+      | if ($card | has("owner")) and $card.owner != null then
+          ($card.owner + "/") as $p
+          | ($card.key | type == "string")
+            and ($card.key | startswith($p))
+            and ($card.key | ltrimstr($p) | slug(128))
+        else ($card.key | slug(128)) end;
     def call_item:
       type == "object"
-      and (.key | slug(128))
+      and owner_scoped_key
       and (.type == "decision" or .type == "merge" or .type == "credential")
       and repo_marker
       and (.title | nonempty_string)
@@ -168,21 +195,26 @@ validate_payload() {  # <data.json>
           and (.recommend_value as $recommend
             | ([.options[].value] | index($recommend) != null))))
       and ([.options[].value] | index("reconcile") == null)
-      and (if .type == "merge" then (.risk | nonempty_string) else true end);
+      and (if .type == "merge" then (.risk | nonempty_string) else true end)
+      and (if has("owner") then (.type == "decision" and (.owner | slug(128))) else true end);
     def underway_item:
       type == "object" and repo_marker and name_marker and (.id | nonempty_string)
-      and (.state | nonempty_string) and (.doing | nonempty_string) and (.kind | nonempty_string);
+      and (.state | nonempty_string) and (.doing | nonempty_string) and (.kind | nonempty_string)
+      and optional_source and optional_as_of;
     def landed_item:
       type == "object" and repo_marker and (.id | nonempty_string)
       and (.what | nonempty_string) and (.owner | nonempty_string)
       and optional_https_url("pr_url")
       and optional_subject;
+    def home_scoped_id:
+      type == "string" and test("^[A-Za-z0-9._-]{1,128}(/[A-Za-z0-9._-]{1,128})?$");
     def charted_item:
-      type == "object" and repo_marker and (.id | slug(128))
+      type == "object" and repo_marker and (.id | home_scoped_id)
       and (.title | nonempty_string) and (.reason | type == "string")
       and (.dispatchable | type == "boolean")
       and ((has("kind") | not) or (.kind == "queued" or .kind == "warning"))
       and optional_filed
+      and optional_source and optional_as_of
       and (if .kind == "warning" then .dispatchable == false else true end);
     type == "object"
     and (.schema == $schema)

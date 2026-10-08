@@ -63,6 +63,28 @@
 # source labeling); this wrapper renders that row like any other active child
 # rather than inventing it here.
 #
+# A secondmate home's optional verified lane-status document (lane_status on the
+# canonical record; docs/vps-lane-status.md owns the producer contract) projects
+# here as first-class rows: working/validating lanes become Underway rows and
+# waiting/blocked/queued/paused lanes become Charted Next gates, each labeled
+# source "verified-lane-status" and carrying the lane's as_of with its age
+# rendered into the row text. For ids the lane document names, these rows
+# REPLACE that home's summary-projected active children and queued gates, so a
+# stale backlog projection cannot shadow verified lane truth; ids the document
+# does not name keep their ordinary projection. A stale document (older than
+# the snapshot's freshness bound) still projects with its age disclosed, and
+# the home also appears in secondmate_reconcile with kind "lane_status_stale",
+# which step 2 of the bearings skill turns into a durable lane refresh request
+# through bin/fm-secondmate-reconcile.sh. Terminal (done/failed) lanes are not
+# projected and are counted in omitted[].
+#
+# Secondmate-owned captain decisions are projected with the context a decision
+# card needs: each decisions_open row carries detail (the owning home's own
+# recorded wording) and, for secondmate rows, route_key - the open parent-channel
+# decision key (captain-hold-<task>-<n>) a captain answer is routed back through
+# via the parent decision-answer path (fm-send --resolve-key). The bearings
+# skill owns the board composition and answer-routing procedure.
+#
 # An open away-return catch-up is disclosed the same way, as a single action-free
 # (return-catchup) gate row naming the blockers left to clear or the reason the
 # catch-up was retained. Reporting is not ordinary captain work, so the gate never
@@ -159,12 +181,20 @@ Default collection performs bounded concurrent remote-ledger reads for registere
 remote homes under one shared snapshot budget and may refresh the parent-side cache.
 --include-prs additionally performs live GitHub discovery and checks.
 
-Default fields: schema, home, generated, prs, in_flight{id,kind,state,repo,name,doing},
-  secondmates{id,state,doing,provenance,freshness,age_seconds,contradiction,reason},
+Default fields: schema, home, generated, prs,
+  in_flight{id,kind,state,repo,name,doing,source,as_of},
+  secondmates{id,state,doing,provenance,freshness,age_seconds,contradiction,reason,lane},
   secondmate_reconcile{id,spawn_gen,host,kind,ids},
-  decisions_open{id,key,verb,summary,owner}, landed{id,what,artifact,owner},
-  gates{id,title,blocked_by,reason,owner,filed}, reports{id,path}, recorded_prs{id,url},
+  decisions_open{id,key,verb,summary,owner,detail,route_key},
+  landed{id,what,artifact,owner},
+  gates{id,title,blocked_by,reason,owner,filed,source}, reports{id,path}, recorded_prs{id,url},
   unhealthy_endpoints{...} (only when non-empty), omitted{surface,reveal}.
+A row sourced from a home's verified lane-status document carries
+  source "verified-lane-status" and its as_of (in_flight) or filed (gates);
+  all other rows carry null there. A secondmate row's lane field summarizes its
+  lane document: null (none), fresh/stale with age, or unavailable with reason.
+  kind "lane_status_stale" in secondmate_reconcile marks a home whose lane
+  document is due a refresh request (bin/fm-secondmate-reconcile.sh).
 Default gates are selected newest filed first before their bound; undated gates
   retain input order after dated gates. The (return-catchup), (main-inventory),
   and (contradiction:<id>) rows are reserved ahead of that ordering and bound.
@@ -403,6 +433,25 @@ MODEL=$(printf '%s' "$SNAP" | jq \
     | if $n <= 0 then ""
       elif length > $n then (if $n == 1 then "…" else (.[:($n - 1)] + "…") end)
       else . end;
+  def age_str($sec):
+    if $sec == null then "?"
+    elif $sec < 3600 then "\(($sec / 60) | floor)m"
+    elif $sec < 86400 then "\(($sec / 3600) | floor)h"
+    else "\(($sec / 86400) | floor)d" end;
+  def lane_age($as_of):
+    (try ($now | fromdateiso8601) catch null) as $ne
+    | if $ne == null then null
+      else (try ($as_of | fromdateiso8601) catch null) as $e
+      | if $e == null then null else ([$ne - $e, 0] | max) end end;
+  def mate_route_key($m; $task_id):
+    ("captain-hold-" + $task_id + "-") as $prefix
+    | ([ $m.parent_event.open_decisions[]?
+       | .key
+       | strings
+       # The suffix after the prefix must be the occurrence number alone, or a
+       # sibling task id sharing this id as a hyphenated prefix (ms9 vs
+       # ms9-owner) would cross-match and route the answer to the wrong call.
+       | select(startswith($prefix) and (ltrimstr($prefix) | test("^[0-9]+$"))) ] | .[0]) // null;
   def live_captain_call: .hold_bucket == "live";
   def projected_deferred_hold:
     .hold_bucket != null and .hold_bucket != "live";
@@ -446,7 +495,7 @@ MODEL=$(printf '%s' "$SNAP" | jq \
     {id, title:(.title | trunc(60)),
      blocked_by:((.unresolved_blocker_ids // []) | if length > 0 then join(",") else "-" end | trunc(120)),
      reason:(hold_gate_reason | trunc(40)), owner:$owner,
-     filed:((.since // null) | trunc(40))};
+     filed:((.since // null) | trunc(40)), source:null};
   def round_robin_landed($n):
     . as $groups
     | [range(0; (($groups | map(length) | max) // 0)) as $i
@@ -495,11 +544,40 @@ MODEL=$(printf '%s' "$SNAP" | jq \
                else "unknown" end
              else .current.state end)
          } ]) as $secondmate_views
+  | ([ (.secondmate_current.records // [])[]
+       | select((.lane_status // null) != null and .lane_status.available == true)
+       | {mate:.id, stale:(.lane_status.stale // false), lanes:(.lane_status.lanes // [])} ]) as $lane_docs
+  | def lane_ids_for($mid): [ $lane_docs[] | select(.mate == $mid) | .lanes[] | .id ];
+    ([ $lane_docs[] as $d | $d.lanes[] | ($d.mate + "/" + .id) ]) as $lane_composite_ids
+  | ([ $lane_docs[] as $d | $d.lanes[]
+       | select(.state == "working" or .state == "validating")
+       | {id:($d.mate + "/" + .id), kind:"vps-lane", state,
+          repo:null,
+          name:(.name | trunc(70)),
+          doing:((("verified " + age_str(lane_age(.as_of)) + " ago"
+                  + (if $d.stale then ", stale" else "" end)
+                  + (if .needs_captain then "; approval pending" else "" end)
+                  + (if (.gates | length) > 0 then "; gates: " + (.gates | join(", ")) else "" end))) | trunc(90)),
+          source:"verified-lane-status", as_of:.as_of} ]) as $lane_underway
+  | ([ $lane_docs[] as $d | $d.lanes[]
+       | select(.state == "waiting" or .state == "blocked" or .state == "queued" or .state == "paused")
+       | {id:($d.mate + "/" + .id),
+          title:(.name | trunc(60)),
+          blocked_by:((if (.gates | length) > 0 then (.gates | join(",")) else "-" end) | trunc(120)),
+          reason:(((.state
+                  + (if $d.stale then " (stale)" else "" end)
+                  + (if .needs_captain then "; approval pending" else "" end)
+                  + "; verified " + age_str(lane_age(.as_of)) + " ago")) | trunc(40)),
+          owner:$d.mate,
+          filed:.as_of,
+          source:"verified-lane-status"} ]) as $lane_gates
+  | ([ $lane_docs[] | .lanes[] | select(.state == "done" or .state == "failed") ] | length) as $lane_terminal_skipped
   | ([ if .secondmate_current.registry.available == false then
          {id:"(registry)",state:"unknown",doing:(.secondmate_current.registry.reason // "Registered secondmate table unavailable"),
           provenance:(.secondmate_current.registry.provenance // "registered-table"),
           freshness:(.secondmate_current.registry.freshness.status // "unavailable"),
-          age_seconds:null,contradiction:false,reason:(.secondmate_current.registry.reason // "Registered secondmate table unavailable")}
+          age_seconds:null,contradiction:false,reason:(.secondmate_current.registry.reason // "Registered secondmate table unavailable"),
+          lane:null}
        else empty end ]
      + [ $secondmate_views[]
        | {id,state:.bearings_state,
@@ -514,7 +592,12 @@ MODEL=$(printf '%s' "$SNAP" | jq \
           provenance:(if .provenance.summary_source == "remote-ledger-cache" then "structured-home-cache"
                       else .provenance.selected end),freshness:.freshness.status,
           age_seconds:.freshness.age_seconds,contradiction:(.contradiction // false),
-          reason:(.current.reason // "-")} ]) as $secondmates_all
+          reason:(.current.reason // "-"),
+          lane:((.lane_status // null) as $ls
+                | if $ls == null then null
+                  elif $ls.available != true then ("unavailable: " + ($ls.reason // "invalid"))
+                  elif ($ls.stale // false) then ("stale (" + age_str($ls.freshness.age_seconds // null) + ")")
+                  else ("fresh (" + age_str($ls.freshness.age_seconds // null) + ")") end)} ]) as $secondmates_all
   | ([ .tasks[]
        | select(.kind != "secondmate")
        | select(.backlog.current_role != "program")
@@ -525,10 +608,12 @@ MODEL=$(printf '%s' "$SNAP" | jq \
         name:((.backlog.title // "") as $name
               | (if ($name | test("[^[:space:]]")) then $name else .id end) | trunc(70)),
         doing: ((.current_state.detail // "") as $d
-                | (if $d != "" then $d else (.hints.last_event_text // "") end) | trunc(90))
+                | (if $d != "" then $d else (.hints.last_event_text // "") end) | trunc(90)),
+        source:null, as_of:null
       } ]
      + [ $secondmate_views[] as $m
          | $m.active_children[]?
+         | select(($m.id + "/" + .id) as $cid | ($lane_composite_ids | index($cid)) | not)
          | {id:($m.id + "/" + .id),
             kind:(.kind // "secondmate"),
             state:(.state // "working"),
@@ -536,20 +621,26 @@ MODEL=$(printf '%s' "$SNAP" | jq \
             name:((.name // "") as $name
                   | (if (($name | type) == "string" and ($name | test("[^[:space:]]")))
                      then $name else ($m.id + "/" + .id) end) | trunc(70)),
-            doing:((.doing // .state) | trunc(90))} ]) as $in_flight_all
+            doing:((.doing // .state) | trunc(90)),
+            source:null, as_of:null} ]
+     + $lane_underway) as $in_flight_all
   | ([ .backlog.records[]
          | . as $record
          | select(.structured and .hold_bucket != null)
          | select(($all_decisions == 1) or live_captain_call)
          | {id,key:.id,verb:"captain-hold",
-            summary:hold_summary(.title; .hold_reason),owner:"(main)"} ]
+            summary:hold_summary(.title; .hold_reason),owner:"(main)",
+            detail:((.body_excerpt // null) | if . == null then null else trunc(240) end),
+            route_key:null} ]
      + [ (.secondmate_current.records // [])[] as $m
          | ([ $m.decisions_open[]?
               | select(.source == "backlog" and .verb == "captain-hold")
               | select(($all_decisions == 1) or live_captain_call)
               | {id:($m.id + "/" + .id),key,verb,
                  summary:hold_summary((.summary // .id);
-                                      (.reason // "captain decision pending")),owner:$m.id} ]
+                                      (.reason // "captain decision pending")),owner:$m.id,
+                 detail:((.detail // null) | if . == null then null else trunc(240) end),
+                 route_key:mate_route_key($m; .id)} ]
             + [ $m.queued[]?
                 | select($all_decisions == 1 and .hold_kind == "captain")
                 | select(.id as $id
@@ -559,7 +650,9 @@ MODEL=$(printf '%s' "$SNAP" | jq \
                          | index($id) | not)
                 | {id:($m.id + "/" + .id),key:.id,verb:"captain-hold",
                    summary:hold_summary((.title // .id);
-                                        (.hold_reason // "captain decision pending")),owner:$m.id} ])[] ]) as $decisions_all
+                                        (.hold_reason // "captain decision pending")),owner:$m.id,
+                   detail:null,
+                   route_key:mate_route_key($m; .id)} ])[] ]) as $decisions_all
   | ([ .backlog.records[]
          | . as $record
          | select(.structured and projected_deferred_hold) ]
@@ -577,7 +670,7 @@ MODEL=$(printf '%s' "$SNAP" | jq \
          blocked_by:"-",
          reason:"away-return catch-up",
          owner:"(main)",
-         filed:null}]
+         filed:null, source:null}]
      else [] end) as $return_catchup_gate
   | ((if (.main_inventory.valid == false) then
         [{id:"(main-inventory)",
@@ -585,7 +678,7 @@ MODEL=$(printf '%s' "$SNAP" | jq \
           blocked_by:"-",
           reason:"main inventory",
           owner:"(main)",
-          filed:null}]
+          filed:null, source:null}]
       else [] end)
      + [ $secondmates_all[]
          | select(.contradiction == true)
@@ -594,7 +687,7 @@ MODEL=$(printf '%s' "$SNAP" | jq \
             blocked_by:"-",
             reason:"parent/terminal evidence contradicts structured state",
             owner:.id,
-            filed:null} ]) as $integrity_gates
+            filed:null, source:null} ]) as $integrity_gates
   | ([ .backlog.records[]
          | . as $record
          | select(.structured and
@@ -608,7 +701,9 @@ MODEL=$(printf '%s' "$SNAP" | jq \
          | $m.queued[]?
          | select(.captain_actionable != true)
          | select((.hold_bucket == null) or ($all_decisions == 0))
-         | as_gate($m.id) ]) as $gates_all
+         | select(.id as $gid | (lane_ids_for($m.id) | index($gid)) | not)
+         | as_gate($m.id) ]
+     + $lane_gates) as $gates_all
   | ([ .scout_reports[]
        | . as $r
        | select(($all_reports == 1) or (($rel_ids | index($r.id)) != null))
@@ -660,9 +755,12 @@ MODEL=$(printf '%s' "$SNAP" | jq \
            captain:[$measured[] as $h | $h.captain[]? | . + {owner:$h.owner}]}),
       in_flight: (if $all_in_flight == 1 then $in_flight_all else $in_flight_all[:$in_flight_n] end),
       secondmates: (if $all_secondmates == 1 then $secondmates_all else $secondmates_all[:$secondmates_n] end),
-      secondmate_reconcile: [ (.secondmate_current.records // [])[]
+      secondmate_reconcile: ([ (.secondmate_current.records // [])[]
         | select(.reconcile_inventory != null)
-        | {id, spawn_gen:(.spawn_gen // null), host:(.host // null), kind:(.reconcile_inventory.kind // null), ids:((.reconcile_inventory.ids // []) | map(select(type == "string")) | sort)} ],
+        | {id, spawn_gen:(.spawn_gen // null), host:(.host // null), kind:(.reconcile_inventory.kind // null), ids:((.reconcile_inventory.ids // []) | map(select(type == "string")) | sort)} ]
+        + [ (.secondmate_current.records // [])[]
+        | select((.lane_status // null) != null and (.lane_status.refresh_due // false) == true)
+        | {id, spawn_gen:(.spawn_gen // null), host:(.host // null), kind:"lane_status_stale", ids:[]} ]),
       decisions_open: (if $all_decisions == 1 then $decisions_all else $decisions_all[:$decisions_n] end),
       landed: ($done | map({id, what:(.title | trunc(70)),
                             artifact:(landed_artifact // "-"),owner:.home_id})),
@@ -709,6 +807,16 @@ MODEL=$(printf '%s' "$SNAP" | jq \
          | {surface:("secondmate " + .id + " served from cached home ledger"),reveal:"inspect the home ledger publication and remote route"}),
         (([($snap.secondmate_current.records // [])[] | select(.parent_event.activity_scan.input_truncated == true or .parent_event.activity_scan.retained_truncated == true)] | length) as $n | if $n > 0 then {surface:("secondmate parent activity evidence truncated for \($n) record(s)"), reveal:"raise FM_SNAPSHOT_PARENT_ACTIVITY_LINES, FM_SNAPSHOT_PARENT_ACTIVITY_BYTES, or FM_SNAPSHOT_PARENT_ACTIVITIES"} else empty end),
         (([($snap.secondmate_current.records // [])[] | select(.parent_event.activity_scan.available == false)] | length) as $n | if $n > 0 then {surface:("secondmate parent activity evidence unavailable for \($n) record(s)"), reveal:"inspect the parent status logs"} else empty end),
+        (($snap.secondmate_current.records // [])[]
+         | select((.lane_status // null) != null and .lane_status.available == true and (.lane_status.stale // false))
+         | {surface:("secondmate " + .id + " lane status is stale (as of " + (.lane_status.as_of // "-") + ", age " + ((.lane_status.freshness.age_seconds // 0) | tostring) + "s)"), reveal:"a durable lane refresh request asks the home to re-query and republish"}),
+        (($snap.secondmate_current.records // [])[]
+         | select((.lane_status // null) != null and .lane_status.available != true)
+         | {surface:("secondmate " + .id + " lane status document unavailable: " + (.lane_status.reason // "invalid")), reveal:"a durable lane refresh request asks the home to re-query and republish"}),
+        (($snap.secondmate_current.records // [])[]
+         | select((.lane_status // null) != null and (.lane_status.truncated // false))
+         | {surface:("secondmate " + .id + " lane rows showing \((.lane_status.lanes // []) | length) of \(.lane_status.lanes_total // 0)"), reveal:"raise FM_SNAPSHOT_LANES"}),
+        (if $lane_terminal_skipped > 0 then {surface:("lane rows in terminal states not projected: \($lane_terminal_skipped)"), reveal:"inspect the publishing home state/vps-lane-status.json"} else empty end),
         (if $all_decisions == 0 and ($decisions_all | length) > $decisions_n then {surface:("decisions_open showing \($decisions_n) of \($decisions_all | length)"), reveal:"--all-decisions"} else empty end),
         (if $all_decisions == 0 and $decisions_marked_deferred > 0 then {surface:("captain holds bucketed blocked, dated, or aged: \($decisions_marked_deferred)"), reveal:"--all-decisions"} else empty end),
         (if $all_queued == 0 and ($gates_all | length) > $gates_n then {surface:("gates showing \($gates_n) of \($gates_all | length)"), reveal:"--all-queued"} else empty end),

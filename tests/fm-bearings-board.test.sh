@@ -305,8 +305,76 @@ test_build_refuses_malformed_payloads_before_touching_the_board() {
   set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
   [ "$rc" -ne 0 ] || fail "a non-HTTPS Landed PR URL was accepted"
 
+  write_valid_payload "$data"
+  jq '.underway = [{"id":"mate/lane-1","repo":null,"name":"Lane","state":"working",
+    "kind":"vps-lane","doing":"verified 31m ago","source":"verified-lane-status",
+    "as_of":"not a timestamp"}]' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
+  [ "$rc" -ne 0 ] || fail "an invalid underway as_of was accepted"
+
+  write_valid_payload "$data"
+  jq '.charted[0].source = ""' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
+  [ "$rc" -ne 0 ] || fail "an empty charted source label was accepted"
+
+  write_valid_payload "$data"
+  jq '.charted[0].id = "mate/lane/extra"' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
+  [ "$rc" -ne 0 ] || fail "a charted id with two scoping segments was accepted"
+
+  write_valid_payload "$data"
+  jq '.captains_call[0].owner = "mate/home"' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
+  [ "$rc" -ne 0 ] || fail "a non-slug decision owner was accepted"
+
+  write_valid_payload "$data"
+  jq '.captains_call[1].owner = "morgan"' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
+  [ "$rc" -ne 0 ] || fail "an owner on a non-decision card was accepted"
+
+  write_valid_payload "$data"
+  jq '.captains_call[0].owner = "morgan"' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
+  [ "$rc" -ne 0 ] || fail "an owner card whose key is not owner-qualified was accepted"
+
+  write_valid_payload "$data"
+  jq '.charted[0].source = "handwritten-note"' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
+  [ "$rc" -ne 0 ] || fail "a non-verified source label was accepted"
+
   assert_absent "$board" "a refused payload still produced a board"
   pass "build refuses malformed payloads before touching the board"
+}
+
+# The verified lane-status and secondmate-owner extensions are ordinary
+# payload fields: a decision card may carry its owning home, and Underway and
+# Charted Next rows may carry a verified source with its as-of instant.
+test_build_accepts_owner_and_verified_lane_fields() {
+  local home data board payload
+  home=$(make_home lane-fields)
+  board="$home/.lavish/bearings-board.html"
+  data="$home/payload.json"
+  write_valid_payload "$data"
+  jq '.captains_call[0].owner = "morgan"
+    | .captains_call[0].key = ("morgan/" + .captains_call[0].key)
+    | .underway = [{"id":"morgan/lane-1","repo":null,"name":"Provider migration",
+        "state":"working","kind":"vps-lane","doing":"verified 31m ago",
+        "source":"verified-lane-status","as_of":"2026-10-07T15:29:00Z"}]
+    | .charted += [{"id":"morgan/lane-2","repo":null,"title":"Billing cutover",
+        "reason":"blocked; verified 31m ago","dispatchable":false,
+        "filed":"2026-10-07T15:29:00Z","source":"verified-lane-status",
+        "as_of":"2026-10-07T15:29:00Z"}]' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  run_board "$home" build "$data" >/dev/null 2>&1 \
+    || fail "a payload with owner and verified lane fields was refused"
+  payload=$(extract_payload "$board")
+  printf '%s' "$payload" | jq -e '
+    .captains_call[0].owner == "morgan"
+    and (.captains_call[0].key | startswith("morgan/"))
+    and .underway[0].source == "verified-lane-status"
+    and .underway[0].as_of == "2026-10-07T15:29:00Z"
+    and ([.charted[] | select(.id == "morgan/lane-2")] | length) == 1
+  ' >/dev/null || fail "the built board lost the owner or verified lane fields"
+  pass "build accepts owner and verified lane fields and keeps them in the board"
 }
 
 test_build_injects_binds_then_arms() {
@@ -771,6 +839,7 @@ test_build_refuses_a_nondecision_reconcile_value() {
 
 test_path_is_stable_and_home_scoped
 test_build_refuses_malformed_payloads_before_touching_the_board
+test_build_accepts_owner_and_verified_lane_fields
 test_charted_kind_is_optional_and_accepts_both_values
 test_build_injects_binds_then_arms
 test_registration_cannot_consume_before_any_origin_binding

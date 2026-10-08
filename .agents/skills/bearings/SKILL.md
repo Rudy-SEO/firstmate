@@ -46,6 +46,9 @@ For a contribution wake or linked-issue filing, go directly to Contribution foll
    Registered owned contributions use the cached `contributions` projection independently of that opt-in; no invocation-time forge discovery is needed to read it.
    For registered secondmates, use the snapshot's structured-home classification and provenance.
    A parent event or bounded terminal contradiction is fallback evidence, never authority over readable structured home state; the snapshot discloses it as a `(contradiction:<id>)` Charted Next gate alongside the home's own unchanged structured row, rather than silently reading that home idle.
+   A secondmate home may additionally publish a verified lane-status document (`docs/vps-lane-status.md` owns the producer contract; `bin/fm-fleet-snapshot.sh` owns collection, validation, and the freshness bound).
+   The snapshot projects its lanes as rows labeled `source: verified-lane-status` with each lane's `as_of`: working and validating lanes appear in `in_flight`, gated lanes appear in `gates`, and for the ids the document names these rows replace that home's backlog-projected rows, so verified lane truth is what renders.
+   Render them like any other Underway or Charted Next row, keeping the as-of age wording the snapshot composed; when the document is stale the rows and `omitted[]` disclose the age, and the digest must keep that disclosure rather than presenting stale lane state as current.
    A decision is simply a task held for the captain (`captain-hold-lifecycle`), whatever its kind.
    The canonical snapshot assigns every captain hold exactly one bucket from structured fields only: `blocked` when any blocker is unresolved, else `dated` while `hold_until` is in the future, else `aged` when an undated hold has reached the configured age threshold, else `live`.
    Never use hold-reason or body prose to classify or place a decision.
@@ -61,14 +64,15 @@ For a contribution wake or linked-issue filing, go directly to Contribution foll
    The `(return-catchup)` gate is the same shape: an action-free notice that an away-return catch-up is still open, naming the blockers left to clear or the reason the catch-up was retained.
    Render it under Charted Next like any other warning row: reporting is not ordinary work, while acting on the fleet still waits for `bin/fm-afk-return.sh check` (`/afk`).
 
-2. **Record a later reconcile notification for any home whose own books disagree.**
+2. **Record a later reconcile notification for any home whose own books disagree, and a lane refresh request for any stale verified lane status.**
    When the snapshot reports a secondmate home whose `invalidity` is `orphan_in_flight`, `unowned_current`, or `terminal_in_flight`, that home's backlog and its own task metadata disagree and only that home may fix it.
-   Run `printf '%s\n' "$snapshot" | bin/fm-secondmate-reconcile.sh request --snapshot -` immediately after gathering the snapshot.
-   This atomically records one local one-shot request per mismatched target and returns without sending, taking a mate lifecycle lock, or waiting behind a local or remote delivery queue.
+   When the snapshot's `secondmate_reconcile` carries a `lane_status_stale` row, that home's verified lane-status document is stale or invalid and only that home can re-query its sources and republish it.
+   In either case run `printf '%s\n' "$snapshot" | bin/fm-secondmate-reconcile.sh request --snapshot -` immediately after gathering the snapshot.
+   This atomically records one local one-shot request per mismatched or stale target and kind, and returns without sending, taking a mate lifecycle lock, or waiting behind a local or remote delivery queue.
    The supervision loop later claims the requests and runs the cooldown-limited fire-and-forget deliveries; the script header owns per-target coalescing, request durability, retries, cooldown, identity checks, and retirement.
    Continue composing the digest from the captured snapshot as soon as the local requests are recorded.
    If local request publication fails, continue composing, report that durability blocker, and never fall back to an inline send.
-   A home is still asked at most once per four-hour window, while a skipped or failed later delivery leaves the request durable for another supervision pass.
+   A home is still asked at most once per cooldown window per kind - four hours for a books reconcile, one hour for a lane refresh - while a skipped or failed later delivery leaves the request durable for another supervision pass.
    Never edit another home's backlog or metadata from here, and never expect or wait on a reply.
 
 3. **Compose the four-section chat digest from the fresh snapshot.**
@@ -99,6 +103,9 @@ For a contribution wake or linked-issue filing, go directly to Contribution foll
 Compose the payload from the same snapshot with the same ranking judgment as the chat digest, plus these board rules:
 
 - A Captain's Call decision key is the captain-held TASK ID from `decisions_open` (legacy `<origin>-decision-<key>` rows are already task ids); a merge card's key is `merge.<task-id>`; the Charted Next dispatch picker's key is `dispatch.charted`.
+- A decision another home owns (a `decisions_open` row whose `owner` is a registered secondmate id, projected as `<owner>/<task-id>`) is carded first-class, not skipped: the card's key is that projected `<owner>/<task-id>` exactly, and the card carries `owner: <secondmate-id>` (the validator refuses a mismatched pair).
+  The owner-qualified key is the collision rule: `/` cannot appear in a main-home task id, so the keyed-answer intake can never resolve an owned card's answer against a same-id main-home captain hold - carded or not, live or deferred - and no additional compose-time collision check is needed for owned-vs-main or owned-vs-owned ids.
+  Build its copy from the projected row itself - `summary`, `reason`, and `detail` are the owning home's own recorded wording - and author the options with hints from that wording, exactly as for a main-home card; keep the row's `route_key` at hand for answer time.
 - Before carding a hold, check that its SUBJECT has not already landed, and omit it when it has. `build` drops a card whose task or PR appears in the payload's own landed rows, and one whose task is no longer an open captain call. When a hold waits on one specific PR, put that PR in the card's `pr_url`. When it concerns a published version, put the artifact and numeric three-part version in the card's structured `subject`; landed rows for releases carry the same identity, and a matching or newer version drops the card. Identity matching is structured only, so verify any subject without one of these identities against current reality before carding it.
 - Never author a `reconcile` option on any card. `build` gives every decision card the standard reconcile choice itself, and the payload validator reserves that value across all card types; recommendations must name an authored option.
 - Compose exactly one decision card per captain-held task id. When one task carries multiple questions, consolidate all of them and their options into that card; never emit duplicate cards with the same task-id key.
@@ -113,6 +120,7 @@ Compose the payload from the same snapshot with the same ranking judgment as the
 - Every Charted Next row copies the snapshot gate's durable filed date into `filed`, and the board orders the section by it, newest filed first.
   Follow `bin/fm-bearings-board.sh`'s payload contract for the accepted format.
   Omit it or pass null for a row with no durable filed date - any of the warning rows above, or a queued row filed before dates were recorded - and the board keeps those rows in payload order after every dated row.
+- A snapshot row labeled `verified-lane-status` copies its `source` and `as_of` into the board row (Underway rows copy both fields; a lane gate also keeps its `as_of` as `filed`), so the board badges the row as verified with its as-of time; compose lane gates with `dispatchable: false`, because a lane is external work the main backlog cannot dispatch.
 - Every Captain's Call item and every Underway, Recently Landed, and Charted Next row carries an explicit `repo` field. Fill it from the snapshot and task records wherever known; use null or an empty string only as the deliberate genuinely-no-repo marker, in which case the template may show the internal id. Ids otherwise stay in the payload only as the routing channel, and composed reasons name blockers in plain words.
 
 Run `build` once after composing the payload.
@@ -124,6 +132,11 @@ Never run `lavish-axi poll` for the board yourself: the armed source's supervise
 
 A board answer arrives as an ordinary `procevent lavish <source-id> <sequence>` check wake. Identify it by comparing the wake source id with `bin/fm-procevent-lavish.sh source-id "$(bin/fm-bearings-board.sh path)"`, regardless of which answer kinds the result contains; then load `process-event-sources` and follow its contract for the result read, adapter classification, and the handled acknowledgement.
 Decision answers need no routing from you: the runner feeds the board's binding into `bin/fm-captain-hold.sh`'s one keyed-answer intake, which closes or releases each answered captain-held task at answer time; reconcile any `skipped:` key yourself with a direct `answer`, and when the captain's answer is "later", record it as a deferral with `bin/fm-captain-hold.sh hold <id> --reason "<reason>" --until <date>` instead of a closure.
+An owner card's `<owner>/<task-id>` key is never a main-home call: the intake reports it `skipped:` with an owner-scoped note (it cannot resolve a `/` key locally, so the answer cannot vanish into the main home's books even when a same-id main-home hold exists), and routing it is yours.
+Split the key on its one `/` to recover the owning home and task, confirm the card's `owner` agrees, and send the captain's exact answer to that home through the parent decision-answer path: `bin/fm-send.sh <owner> --resolve-key <route_key> "<the captain's answer, verbatim, plus which held task it answers>"`, where `route_key` is the open parent-channel decision key for that task (`captain-hold-<task-id>-<n>`, carried as `route_key` on the snapshot's `decisions_open` row).
+When no open route key exists, or the key and card owner disagree, do not guess a destination: send nothing keyed, report the captured answer and the mismatch in chat, and leave the captured record as the durable evidence.
+The owning home records the captain's words in its own books through its own captain-hold owner, which publishes the matching `resolved` line; never run `bin/fm-captain-hold.sh answer` in the main home for an owner card and never edit the owning home's backlog or state.
+A reconcile selection on an owner card stays announced-only, exactly as the remote-secondmate rule below states.
 A current structured Reconcile selection closes nothing: the versioned board context carries its exact selected option separately from any typed note, and the adapter routes that selection only into a durable re-check request while preserving the note as provenance.
 The rollout-compatible old context still feeds ordinary non-reconcile answers, but its bare or separator-annotated reconcile values and every structurally uncertain choice feed neither intake and remain announced for deliberate handling.
 Verify the call's latest state, then retire the request through `bin/fm-captain-hold.sh reconcile close <id> --evidence-file <path>` when it turns out to be moot, or `reconcile note <id> --note-file <path>` when it is genuinely still open.
