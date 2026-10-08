@@ -116,6 +116,24 @@ render() {  # <home> <charted-json> [charted_more] [charted_warning_more]
   render_board "$1" '[]' "$2" "${3:-0}" "${4:-0}"
 }
 
+# Build the board from <captains-call-json> plus an uncarded-decision count and
+# return what the renderer produced.
+render_call() {  # <home> <captains-call-json> [call_more]
+  local home=$1 call=$2 call_more=${3:-0} data="$1/payload.json"
+  jq -n --argjson call "$call" --argjson call_more "$call_more" '{
+    schema:"fm-bearings-board.v1", home:"render-home", generated:"2026-10-08T00:00Z",
+    prs_live:false, captains_call:$call, underway:[], landed:[],
+    charted:[], call_more:$call_more}' > "$data"
+  PATH="$home/fakebin:$PATH" FM_HOME="$home" \
+    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+    FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
+    LAVISH_AXI_STATE_DIR="$home/lavish-state" \
+    "$BOARD" build "$data" >/dev/null || fail "the board did not build"
+  require_listener_reached_poll "$home"
+  node "$HARNESS" "$home/.lavish/bearings-board.html" \
+    || fail "the built board could not be rendered"
+}
+
 charted_next_count() {  # <render-json>
   printf '%s' "$1" | jq -r '.stats[] | select(.label == "charted next") | .n'
 }
@@ -266,6 +284,68 @@ test_charted_rows_without_a_filed_date_follow_the_dated_rows_in_payload_order() 
   pass "charted rows with no filed date follow the dated rows in payload order"
 }
 
+test_a_bundled_hold_is_flagged_as_a_recording_defect() {
+  local home out
+  home=$(make_home bundled-hold)
+  out=$(render_call "$home" '[
+    {"key":"ms-gates-decisions","type":"decision","repo":"ms-gates",
+     "title":"Gate rollout decisions","about":"evidence: the gates review","decide":"Approve the rollout?",
+     "bundled":3,
+     "options":[{"value":"yes","label":"Approve","hint":"ships now"},{"value":"no","label":"Adjust"}]},
+    {"key":"single-call","type":"decision","repo":"sample",
+     "title":"One clean call","decide":"Adopt it?",
+     "options":[{"value":"yes","label":"Adopt"},{"value":"no","label":"Keep current"}]}
+  ]')
+  printf '%s' "$out" | jq -e '.error == ""' >/dev/null \
+    || fail "the board rendered its fail-closed error instead of the deck: $out"
+  printf '%s' "$out" | jq -e '
+    (.call | length) == 2
+      and (.call[0]
+        | ([.badges[] | select(.text == "bundles 3 calls")] | length) == 1
+          and ([.badges[] | select(.text == "bundles 3 calls") | .tone] == ["warn"])
+          and (.bundle | length) == 1
+          and (.bundle[0] | test("Recording defect"))
+          and (.bundle[0] | test("3 distinct decisions"))
+          and (.bundle[0] | test("re-record one call per decision")))
+      and (.call[1]
+        | (.bundle | length) == 0
+          and ([.badges[] | select(.text | startswith("bundles"))] | length) == 0)
+  ' >/dev/null || fail "a bundled hold did not read as a recording defect: $out"
+  pass "a bundled hold is visibly flagged while a clean call stays unflagged"
+}
+
+test_uncarded_open_decisions_are_disclosed_not_hidden() {
+  local home out
+  home=$(make_home call-gap)
+  out=$(render_call "$home" '[
+    {"key":"single-call","type":"decision","repo":"sample",
+     "title":"One clean call","decide":"Adopt it?",
+     "options":[{"value":"yes","label":"Adopt"},{"value":"no","label":"Keep current"}]}
+  ]' 2)
+  printf '%s' "$out" | jq -e '
+    ([.stats[] | select(.label == "need you") | .n] == [3])
+      and (.call_gap | length) == 1
+      and (.call_gap[0] | test("\\+2 more open decisions not carded here"))
+      and (.call_gap[0] | test("open decision set"))
+  ' >/dev/null || fail "uncarded open decisions were not disclosed: $out"
+  pass "uncarded open decisions raise the needs-you count and render the gap"
+}
+
+test_a_fully_carded_deck_renders_no_divergence_gap() {
+  local home out
+  home=$(make_home call-no-gap)
+  out=$(render_call "$home" '[
+    {"key":"single-call","type":"decision","repo":"sample",
+     "title":"One clean call","decide":"Adopt it?",
+     "options":[{"value":"yes","label":"Adopt"},{"value":"no","label":"Keep current"}]}
+  ]' 0)
+  printf '%s' "$out" | jq -e '
+    ([.stats[] | select(.label == "need you") | .n] == [1])
+      and (.call_gap | length) == 0
+  ' >/dev/null || fail "a fully carded deck still rendered a divergence gap: $out"
+  pass "a fully carded deck renders no divergence gap"
+}
+
 test_an_underway_row_leads_with_the_task_name_and_keeps_its_run_status
 test_an_underway_identifier_label_is_not_replaced_by_run_status
 test_charted_next_reads_newest_filed_first
@@ -275,3 +355,6 @@ test_warnings_are_excluded_from_the_charted_next_count
 test_a_board_of_only_warnings_still_reports_nothing_queued
 test_omitted_warnings_never_count_as_more_queued
 test_an_omitted_kind_keeps_the_existing_queued_rendering
+test_a_bundled_hold_is_flagged_as_a_recording_defect
+test_uncarded_open_decisions_are_disclosed_not_hidden
+test_a_fully_carded_deck_renders_no_divergence_gap

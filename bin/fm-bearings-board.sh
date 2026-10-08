@@ -94,6 +94,16 @@
 # a Charted Next id may carry one `<home>/<lane>` scoping segment for
 # cross-home verified rows.
 #
+# PER-DECISION DIAGNOSTICS. A decision card MAY carry `bundled`, an integer
+# >= 2: the composer's judgment that this one hold's recorded wording bundles
+# that many distinct captain calls. The template then flags the card as a
+# recording defect instead of presenting the bundle as one decision; any other
+# value, or the field on a non-decision card, refuses. The payload MAY carry
+# `call_more`, a non-negative integer counting open decisions the snapshot
+# disclosed but the payload does not card; the template adds it to the
+# needs-you count and shows the divergence, so the board never silently shows
+# fewer decisions than the fleet's open decision set.
+#
 # The board path is stable - $FM_HOME/.lavish/bearings-board.html - so a
 # re-invocation rebuilds the same file in place, which keeps the same Lavish
 # session URL and the same canonical process-event source id. Injection escapes
@@ -196,7 +206,13 @@ validate_payload() {  # <data.json>
             | ([.options[].value] | index($recommend) != null))))
       and ([.options[].value] | index("reconcile") == null)
       and (if .type == "merge" then (.risk | nonempty_string) else true end)
-      and (if has("owner") then (.type == "decision" and (.owner | slug(128))) else true end);
+      and (if has("owner") then (.type == "decision" and (.owner | slug(128))) else true end)
+      and ((has("bundled") | not)
+        or (.bundled == null)
+        or (.type == "decision"
+          and (.bundled | type == "number")
+          and (.bundled | floor == .)
+          and .bundled >= 2));
     def underway_item:
       type == "object" and repo_marker and name_marker and (.id | nonempty_string)
       and (.state | nonempty_string) and (.doing | nonempty_string) and (.kind | nonempty_string)
@@ -229,6 +245,8 @@ validate_payload() {  # <data.json>
       or ((.charted_more | type == "number") and (.charted_more >= 0) and (.charted_more | floor == .)))
     and ((has("charted_warning_more") | not)
       or ((.charted_warning_more | type == "number") and (.charted_warning_more >= 0) and (.charted_warning_more | floor == .)))
+    and ((has("call_more") | not)
+      or ((.call_more | type == "number") and (.call_more >= 0) and (.call_more | floor == .)))
     and ([.captains_call[] | call_item] | all)
     and ([.underway[] | underway_item] | all)
     and ([.landed[] | landed_item] | all)

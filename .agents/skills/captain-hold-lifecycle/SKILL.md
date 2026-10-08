@@ -20,7 +20,13 @@ Every unresolved question that belongs to the captain and is discovered while pr
 For a Lavish board-backed handoff, pass the reply through `bin/fm-procevent-lavish.sh arm --agent-reply-file` before appending the status; the adapter owns version-specific acceptance ordering.
 Prefer holding the work item the question gates over minting a new row; create a new task only when no work item exists to hold.
 The originating investigation or review is never its own inventory entry, so hold a separate task for the call and pass `--origin <origin-id>` so `complete` can check it.
-Put the question and its options in the hold reason, and keep one held task per genuine gate: a multi-question review is one held task pointing at its report, not a row per question. Represent that task with exactly one board card that consolidates its questions and options; never fan one task id into duplicate same-key cards.
+Record one captain hold per distinct decision call, so the home's decision set counts one held task per answer the captain owes: a review or packet that surfaces several distinct calls produces one hold per call, never one consolidated hold naming them all.
+Consolidation is how calls get lost: a bundled hold cards as a single board decision, so the captain sees fewer decisions than the home is actually waiting on, and Bearings can only disclose that defect, not repair it.
+Two questions are one call only when a single answer necessarily settles both; needing to number separate items inside one hold reason means they are distinct calls to record separately.
+When several distinct calls would land on one work item, hold that work item for the one call that gates it and create a separate task per additional call.
+Write each hold reason as a self-contained per-decision packet: the one plain question, the options with their trade-offs, the recommendation, the evidence behind it, and the explicit ask to approve or adjust.
+Represent each held task with exactly one board card; never fan one task id into duplicate same-key cards.
+A hold discovered bundling several distinct calls is a recording defect in the owning home: re-hold it there with a corrected single-call reason and register the remaining calls as their own held tasks, so the decision set matches the calls one-to-one.
 Register or re-hold through `bin/fm-captain-hold.sh hold`, which is idempotent per task id.
 After inventorying the whole report and review surface, run `bin/fm-captain-hold.sh complete` with every captain-held task id, or with `--none` only when the reviewed surface leaves nothing waiting on the captain.
 A completed investigation and an ended visual review use this same owner and completion command; a visual tool, including Lavish, never owns a parallel completion policy.
@@ -61,7 +67,7 @@ The absence of a routed work item is not a divergence and the guard never requir
 
 1. Read the complete investigation result and complete the visual review before declaring either complete.
 2. Inventory only genuine unresolved choices that require the captain, and find the task each one gates.
-3. Hold that task - or create one captain-held task for the review's open questions - with a concise reason carrying the question and options.
+3. Hold the task each call gates - or create one captain-held task per open call - with a concise reason carrying that one call's packet.
 4. Run `complete` with the full captain-held inventory for that review pass.
 5. Relay the choices to the captain as decisions from Bearings' Captain's Call section under `AGENTS.md` section 9; do not use the word hold in captain chat.
 6. Close each call only through `answer` (or a channel that feeds `answers`), close a board-requested moot call through evidence-backed `reconcile close`, record a still-active reconciliation through `reconcile note`, use `--until` when the captain defers it, or confirm a channel already closed it.
