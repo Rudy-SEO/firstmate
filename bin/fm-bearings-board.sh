@@ -94,6 +94,17 @@
 # a Charted Next id may carry one `<home>/<lane>` scoping segment for
 # cross-home verified rows.
 #
+# THE DIVERGENCE REFUSAL. The payload MAY carry `decisions_integrity` (the
+# snapshot's diagnostic: gated, carded, divergent, homes). The validator
+# accepts it only with number gated/carded, boolean divergent, and an array
+# homes, and build REFUSES a final effective payload whose Captain's Call is
+# empty while decisions_integrity.divergent is true - live captain-gated
+# waits exist in the fleet's structured state but no decision card was
+# composed, so "Nothing needs your action right now" would be a false claim.
+# The composer resolves a divergent payload by re-running the snapshot with
+# --all-decisions and carding every revealed decision row, never by acking
+# the diagnostic away.
+#
 # The board path is stable - $FM_HOME/.lavish/bearings-board.html - so a
 # re-invocation rebuilds the same file in place, which keeps the same Lavish
 # session URL and the same canonical process-event source id. Injection escapes
@@ -216,6 +227,14 @@ validate_payload() {  # <data.json>
       and optional_filed
       and optional_source and optional_as_of
       and (if .kind == "warning" then .dispatchable == false else true end);
+    def decisions_integrity_marker:
+      (has("decisions_integrity") | not)
+      or (.decisions_integrity
+        | type == "object"
+          and ((.gated | type) == "number") and (.gated | (type == "number" and . >= 0 and floor == .))
+          and ((.carded | type) == "number") and (.carded | (type == "number" and . >= 0 and floor == .))
+          and (.divergent | type) == "boolean"
+          and ((.homes | type) == "array"));
     type == "object"
     and (.schema == $schema)
     and (.home | nonempty_string)
@@ -225,6 +244,7 @@ validate_payload() {  # <data.json>
     and (.underway | type == "array")
     and (.landed | type == "array")
     and (.charted | type == "array")
+    and decisions_integrity_marker
     and ((has("charted_more") | not)
       or ((.charted_more | type == "number") and (.charted_more >= 0) and (.charted_more | floor == .)))
     and ((has("charted_warning_more") | not)
@@ -405,6 +425,16 @@ command_build() {
   if ! effective_payload "$data" "$effective"; then
     rm -f -- "$effective"
     fail "cannot reconcile the board payload against landed work"
+  fi
+  # The board can never publish zero Captain's Call cards while the fleet's
+  # structured state reports live captain-gated waits. decisions_integrity is
+  # the snapshot's diagnostic; the composer cards every revealed row, so a
+  # divergent flag alongside an empty call is a composing or freshness error
+  # and refuses here rather than showing "Nothing needs your action" over a
+  # real wait.
+  if jq -e '.decisions_integrity.divergent == true and (.captains_call | length) == 0' "$effective" >/dev/null 2>&1; then
+    rm -f -- "$effective"
+    fail "refusing an empty Captain's Call while decisions_integrity.divergent is true (live captain-gated waits exist but no decision cards are composed); re-run the snapshot with --all-decisions and card every revealed row"
   fi
   json=$(jq -c . "$effective") || { rm -f -- "$effective"; fail "cannot compact the board data"; }
   rm -f -- "$effective"

@@ -65,7 +65,9 @@ Each lane row:
 - `as_of`: the UTC verification instant for this row, `YYYY-MM-DDTHH:MM:SSZ`; usually the document-level `as_of`.
 - `gates`: array of strings naming what the lane waits on (approvals, dependencies); `[]` when nothing.
 - `needs_captain`: `true` only when the lane is waiting on the captain specifically.
-  This is disclosure, not a decision record: the consumer renders it as "approval pending" wording and never invents a captain hold from it; a real captain decision still needs the normal captain-hold lifecycle.
+  This is the structured captain-wait signal: the bearings surface cards the lane as its own Captain's Call decision (one card per lane, `source "verified-lane-status"`), shown beside any backlog captain holds, and removes the lane from the Charted Next gates so it never double-reports.
+  The signal is not itself a backlog captain hold and never enters the owning home's captain-hold lifecycle; the captain's disposition on the card is routed back to the owning home, which records it through its own channel with the normal lifecycle.
+  When the producer needs a formal answer record, it still records a real captain hold through the normal captain-hold lifecycle, and the lane flag stays in step.
 
 ## Producing the document (read-only query steps)
 
@@ -91,6 +93,14 @@ A generic producer substitutes its own authoritative sources in `source` and fol
 
 - `bin/fm-fleet-snapshot.sh` collects the document beside the home's `state/home-summary.json` ledger - directly for a local home, through the same bounded remote read and parent-side cache for a remote home - validates it fail-closed, and attaches it to the home's record as `lane_status` with freshness age computed from `generated_epoch`.
 - `bin/fm-bearings-snapshot.sh` projects the lanes into Underway and Charted Next rows labeled `verified-lane-status`, with each row's `as_of` disclosed, replacing this home's backlog-projected rows for matching ids.
+  A `needs_captain` lane is not a gate: it cards as that lane's own Captain's Call decision instead, and the bearing surface's `decisions_integrity` diagnostic counts it as a live captain-gated wait.
 - A document older than the consumer's freshness bound (`FM_SNAPSHOT_LANE_FRESH_SECONDS`, 7200 seconds default), or an invalid one, still renders with its age disclosed where possible, and additionally records a durable refresh request that the supervision loop delivers as a cooldown-limited ask: re-query the sources and republish.
   The ask expects no reply; republishing the document is the answer.
 - A home that has never published the document is not a lane-status home; nothing is requested from it.
+
+## Captain waits (`needs_captain`)
+
+A lane marked `needs_captain: true` is a captain-pleading gate - a push-word gate, a review gate, or any approval the producer verified is waiting on the captain specifically.
+It projects to `/bearings` as one Captain's Call decision card per lane, built from the lane's own `name` and `gates` wording, instead of a Charted Next gate.
+The owned lane card routes back to this home (the card's `owner` is this home's id), and this home records the captain's disposition through its own channel - a normal captain hold when a durable answer record is wanted.
+This is what keeps the board truthful: a verified captain wait is a decision card, never hidden behind a queue row or an empty Captain's Call.

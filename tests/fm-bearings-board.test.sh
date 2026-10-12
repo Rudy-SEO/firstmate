@@ -346,6 +346,39 @@ test_build_refuses_malformed_payloads_before_touching_the_board() {
   pass "build refuses malformed payloads before touching the board"
 }
 
+# The board can never publish an empty Captain's Call while the snapshot's
+# decisions_integrity diagnostic reports live captain-gated waits. A payload
+# carrying decisions_integrity.divergent true with zero cards refuses; the
+# same flag with a composed card passes (the composer cards every revealed
+# row and the flag itself is validated).
+test_build_refuses_an_empty_call_under_a_divergent_diagnostic() {
+  local home data board out rc
+  home=$(make_home divergent)
+  board="$home/.lavish/bearings-board.html"
+  data="$home/payload.json"
+
+  write_valid_payload "$data"
+  jq '.captains_call = [] | .decisions_integrity = {gated:2, carded:0, divergent:true, homes:[{home:"domain-alpha", gated:2, carded:0}]}' \
+    "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
+  [ "$rc" -ne 0 ] || fail "an empty Captain's Call under a divergent diagnostic was published"
+  assert_contains "$out" "decisions_integrity.divergent" "the divergent empty-call refusal did not name the diagnostic: $out"
+  assert_absent "$board" "a refused divergent payload still produced a board"
+
+  write_valid_payload "$data"
+  jq '.decisions_integrity = {gated:2, carded:2, divergent:false, homes:[{home:"domain-alpha", gated:2, carded:2}]}' \
+    "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  run_board "$home" build "$data" >/dev/null 2>&1 \
+    || fail "a healthy payload carrying decisions_integrity was refused"
+
+  write_valid_payload "$data"
+  jq '.decisions_integrity = {gated:"many", carded:2, divergent:false, homes:[]}' \
+    "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
+  [ "$rc" -ne 0 ] || fail "a malformed decisions_integrity marker was accepted"
+  pass "build refuses an empty Captain's Call only when the divergence diagnostic fires"
+}
+
 # The verified lane-status and secondmate-owner extensions are ordinary
 # payload fields: a decision card may carry its owning home, and Underway and
 # Charted Next rows may carry a verified source with its as-of instant.
@@ -839,6 +872,7 @@ test_build_refuses_a_nondecision_reconcile_value() {
 
 test_path_is_stable_and_home_scoped
 test_build_refuses_malformed_payloads_before_touching_the_board
+test_build_refuses_an_empty_call_under_a_divergent_diagnostic
 test_build_accepts_owner_and_verified_lane_fields
 test_charted_kind_is_optional_and_accepts_both_values
 test_build_injects_binds_then_arms

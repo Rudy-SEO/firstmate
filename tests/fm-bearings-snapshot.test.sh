@@ -503,16 +503,22 @@ test_active_child_overrides_old_parent_event() {
 EOF
   fm_write_meta "$mate/state/phase8.meta" \
     "window=firstmate:fm-phase8" "worktree=$mate/projects/phase8" "project=sample" \
-    "harness=codex" "kind=ship" "mode=no-mistakes"
+    "harness=claude" "kind=ship" "mode=no-mistakes"
+  # A readable child current-state keeps the home's summary valid so the
+  # status-line decision folds into its ledger and cards.
+  record_claude_state "$mate/state" phase8 idle
   printf 'working [key=phase8]: implementing Phase 8 parity\nneeds-decision [key=release]: choose release A or B\n' \
     > "$mate/state/phase8.status"
   fakebin=$(make_fakebin "$home")
   json=$(run "$home" "$fakebin" --json)
   printf '%s' "$json" | jq -e '
-    (.secondmates | any(.[]; .id == "domain-alpha" and .state != "captain_decision"
-      and (.doing | contains("release A or B") | not)))
-      and (.decisions_open | any(.owner == "domain-alpha") | not)
-  ' >/dev/null || fail "status-only child decision leaked into Bearings: $json"
+    (.secondmates | any(.[]; .id == "domain-alpha" and .state == "captain_decision"
+      and (.doing | contains("release A or B"))))
+      and (.decisions_open | any(.[]; .id == "domain-alpha/phase8"
+        and .key == "release" and .verb == "needs-decision" and .owner == "domain-alpha"))
+      and (.decisions_integrity.divergent == false)
+      and (.decisions_integrity.gated == 1) and (.decisions_integrity.carded == 1)
+  ' >/dev/null || fail "status-only child decision did not card for the home: $json"
   canonical=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
     "$ROOT/bin/fm-fleet-snapshot.sh" --json)
   printf '%s' "$canonical" | jq -e '
@@ -522,7 +528,7 @@ EOF
       and .endpoint.freshness == "fresh"
       and .endpoint.observed_at == "2026-07-11T18:00:00Z"
   ' >/dev/null || fail "child endpoint observation lacked bounded current freshness: $canonical"
-  pass "Bearings excludes a status-only child decision"
+  pass "a status-only child decision cards for its home"
 }
 
 test_structured_child_decision_reaches_captains_call() {
@@ -552,9 +558,85 @@ EOF
     (.secondmates | any(.[]; .id == "domain-alpha" and .state == "captain_decision"))
       and (.decisions_open | any(.[]; .id == "domain-alpha/phase8-decision-release"
         and .key == "phase8-decision-release" and .verb == "captain-hold"))
+      and (.decisions_open | any(.[]; .id == "domain-alpha/phase8"
+        and .key == "release" and .verb == "needs-decision"))
       and (.in_flight | any(.[]; .id == "domain-alpha") | not)
-  ' >/dev/null || fail "structured child captain hold did not reach Captain Call: $json"
-  pass "a structured child captain hold reaches Captain's Call"
+      and (.decisions_integrity.divergent == false)
+      and (.decisions_integrity.gated == 2) and (.decisions_integrity.carded == 2)
+  ' >/dev/null || fail "structured child captain hold and its status decision did not reach Captain Call: $json"
+  pass "structured child captain holds and status decisions reach Captain's Call together"
+}
+
+# A home's verified lane-status document marks a lane needs_captain; that lane
+# cards as the home's own decision (one card per lane, source
+# verified-lane-status) and never also renders as a Charted Next gate, while a
+# non-captain waiting lane stays a gate and the integrity diagnostic counts
+# every captain gate.
+test_needs_captain_lanes_card_as_decisions_and_leave_gates() {
+  local home mate fakebin json
+  home=$(make_home lane-card-parent)
+  mate="$TMP_ROOT/lane-card-home"
+  write_domain_alpha_fixture "$home" "$mate"
+  cat > "$mate/data/backlog.md" <<'EOF'
+## In flight
+
+## Queued
+- [ ] hold-live - Live hold (repo: sample) (kind: captain) (since 2026-07-13) (hold: captain choice pending) (hold-kind: captain)
+
+## Done
+EOF
+  jq -n --arg home "$mate" '{
+    schema:"fm-vps-lane-status.v1", home:$home,
+    generated:"2026-07-13T18:00:00Z", generated_epoch:1784008800,
+    source:"fixture", as_of:"2026-07-13T17:59:00Z",
+    lanes:[
+      {id:"push-gate",name:"Push-word lane",state:"waiting",as_of:"2026-07-13T17:59:00Z",gates:["captain push word"],needs_captain:true},
+      {id:"host-wait",name:"Host lane",state:"waiting",as_of:"2026-07-13T17:59:00Z",gates:["HOST commit + push"],needs_captain:false}
+    ]
+  }' > "$mate/state/vps-lane-status.json"
+  fakebin=$(make_fakebin "$home")
+  json=$(run "$home" "$fakebin" --json)
+  printf '%s' "$json" | jq -e '
+    (.decisions_open | any(.[]; .id == "domain-alpha/push-gate" and .key == "push-gate"
+      and .verb == "captain-hold" and .owner == "domain-alpha"
+      and .source == "verified-lane-status" and .route_key == null))
+      and (.decisions_open | any(.[]; .id == "domain-alpha/hold-live"
+        and .verb == "captain-hold" and .owner == "domain-alpha"))
+      and (.gates | any(.[]; .id == "domain-alpha/push-gate") | not)
+      and (.gates | any(.[]; .id == "domain-alpha/host-wait"))
+      and (.decisions_integrity.divergent == false)
+      and (.decisions_integrity.gated == 2) and (.decisions_integrity.carded == 2)
+      and ([.decisions_integrity.homes[] | select(.home == "domain-alpha") | .gated][0] == 2)
+  ' >/dev/null || fail "a needs_captain lane did not card as its own decision: $json"
+  pass "needs_captain lanes card as decisions and leave the gates"
+}
+
+# The snapshot caps each home's decisions_open at FM_SNAPSHOT_SECONDMATE_DECISIONS
+# and records the overflow in the home ledger's omitted[]; the bearings surface
+# must propagate that disclosure so a truncated decision set never reads complete.
+test_secondmate_decisions_per_home_cap_is_disclosed() {
+  local home mate fakebin json i
+  home=$(make_home lane-cap-parent)
+  mate="$TMP_ROOT/lane-cap-home"
+  write_domain_alpha_fixture "$home" "$mate"
+  {
+    printf '## In flight\n\n## Queued\n'
+    i=1
+    while [ "$i" -le 21 ]; do
+      printf -- '- [ ] hold-%02d - Hold %02d (repo: sample) (kind: captain) (since 2026-07-13) (hold: captain choice pending) (hold-kind: captain)\n' "$i" "$i"
+      i=$((i + 1))
+    done
+    printf '\n## Done\n'
+  } > "$mate/data/backlog.md"
+  fakebin=$(make_fakebin "$home")
+  json=$(run "$home" "$fakebin" --json)
+  printf '%s' "$json" | jq -e '
+    (.decisions_open | length) == 20
+      and (.omitted | any(.surface == "secondmate domain-alpha decisions omitted by snapshot bound: 1"
+        and .reveal == "raise FM_SNAPSHOT_SECONDMATE_DECISIONS"))
+      and (.decisions_integrity.divergent == false)
+  ' >/dev/null || fail "the per-home decisions cap was not disclosed: $json"
+  pass "per-home decisions truncation is disclosed through omitted[]"
 }
 
 make_valid_secondmate_home() {  # <id> <home>
@@ -1575,7 +1657,7 @@ test_section_caps_and_expansion_flags() {
     (.in_flight|length) == 2 and (.decisions_open|length) == 2 and (.gates|length) == 2
     and (.reports|length) == 2 and (.recorded_prs|length) == 2 and (.unhealthy_endpoints|length) == 2
     and ([.omitted[].surface] | index("in_flight showing 2 of 5") != null)
-    and ([.omitted[].surface] | index("decisions_open showing 2 of 5") != null)
+    and ([.omitted[].surface] | index("decisions_open showing 2 of 10") != null)
     and ([.omitted[].surface] | index("gates showing 2 of 5") != null)
     and ([.omitted[].surface] | index("reports showing 2 of 5") != null)
     and ([.omitted[].surface] | index("recorded_prs showing 2 of 5") != null)
@@ -1586,7 +1668,7 @@ test_section_caps_and_expansion_flags() {
     run "$home" "$fakebin" --json --all-in-flight --all-decisions --all-queued \
       --all-reports --all-recorded-prs --all-unhealthy)
   printf '%s' "$expanded" | jq -e '
-    (.in_flight|length) == 5 and (.decisions_open|length) == 5 and (.gates|length) == 5
+    (.in_flight|length) == 5 and (.decisions_open|length) == 10 and (.gates|length) == 5
     and (.reports|length) == 5 and (.recorded_prs|length) == 5 and (.unhealthy_endpoints|length) == 5
   ' >/dev/null || fail "section expansion flags did not reveal full sets: $expanded"
   pass "all fleet-sized sections are capped with counted opt-in expansion"
@@ -2166,8 +2248,9 @@ test_live_blocker_is_not_charted_queue_work() {
 # Captain's Call is populated only from the durable keyed open-decision set. The
 # anti-leak guard: action-free highlights - a working task, a completed scout,
 # queued/gated items, landed work - must never surface as an open decision, so they
-# cannot leak into Captain's Call. The standard fixture has exactly one genuine open
-# decision (the secondmate's structured captain hold).
+# cannot leak into Captain's Call. The standard fixture carries two genuine open
+# decisions for the secondmate: its structured captain hold and its status-line
+# needs-decision, and both card while no action-free row leaks.
 test_captains_call_anti_leak() {
   local home fakebin json canonical
   home=$(make_home anti-leak); write_fixture "$home"
@@ -2175,7 +2258,9 @@ test_captains_call_anti_leak() {
   json=$(run "$home" "$fakebin" --json)
   canonical=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$ROOT/bin/fm-fleet-snapshot.sh" --json)
   jq -n -e --argjson bearings "$json" --argjson canonical "$canonical" '
-    ([$bearings.decisions_open[].id] == ["mate/mate-decision-race"])
+    ([$bearings.decisions_open[].id] == ["mate/mate-decision-race", "mate/mate"])
+      and ([$bearings.decisions_open[] | select(.id == "mate/mate") | .verb][0] == "needs-decision")
+      and ([$bearings.decisions_open[] | select(.id == "mate/mate") | .key][0] == "race")
       and ($canonical.secondmate_current.records[] | select(.id == "mate")
         | (.decisions_open | any(.source == "status"))
           and (.decisions_open | any(.source == "backlog")))
@@ -2186,8 +2271,10 @@ test_captains_call_anti_leak() {
       and ([$bearings.decisions_open[].id] | index("mate-landed") | not)
       and ([$bearings.decisions_open[].id] | index("live-gate") | not)
       and ([$bearings.decisions_open[].id] | index("dead-gate") | not)
+      and ($bearings.decisions_integrity.divergent == false)
+      and ($bearings.decisions_integrity.gated == 2) and ($bearings.decisions_integrity.carded == 2)
   ' >/dev/null || fail "only genuine open decisions may feed Captain's Call: $json"
-  pass "action-free items (working/done/queued/landed) do not leak into Captain's Call"
+  pass "status decisions and holds card while action-free items do not leak into Captain's Call"
 }
 
 # R1: main-home orphan in-flight and unstructured current rows must not vanish
@@ -3415,6 +3502,8 @@ test_gnu_stat_uses_file_formats_without_bsd_fallback_pollution
 test_parent_activity_evidence_is_bounded_and_disclosed
 test_active_child_overrides_old_parent_event
 test_structured_child_decision_reaches_captains_call
+test_needs_captain_lanes_card_as_decisions_and_leave_gates
+test_secondmate_decisions_per_home_cap_is_disclosed
 test_bad_secondmate_homes_never_revive_parent_work
 test_oversized_secondmate_summary_stays_strict_unknown
 test_secondmate_and_child_bounds_are_disclosed

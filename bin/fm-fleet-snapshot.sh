@@ -100,6 +100,11 @@
 #     reconcile_inventory independently of projection trust.
 #     Actionable captain holds appear in decisions_open; every captain hold remains
 #     in the bounded queued inventory with its structured classification metadata.
+#     decisions_open is not limited to backlog holds: the home's own summary fold
+#     also carries each task's keyed open decisions from status_open_decisions as
+#     source "status" rows, so a renderer cards an unanswered needs-decision status
+#     line exactly like a hold. The decision source is the owning home's recorded
+#     ledger, never prose.
 #     A backlog-sourced decisions_open row also carries detail, the held task's
 #     body excerpt, so a renderer can card the decision with the wording the
 #     owning home itself recorded; older producers without it stay valid.
