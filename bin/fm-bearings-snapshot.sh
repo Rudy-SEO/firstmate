@@ -46,6 +46,32 @@
 # Aging is a projection safety net only; the durable
 # deferral remains re-holding with --until.
 #
+# EVERY captain-facing wait cards, one card per wait. The decision source is not
+# limited to live backlog captain-hold rows: a keyed open needs-decision status
+# line (a decisions_open row with source "status", from status_open_decisions via
+# the owning home's ledger fold) is a live captain wait by construction and cards
+# in the default view, and a needs_captain lane in a home's verified lane-status
+# document cards as that lane's own decision (source "verified-lane-status",
+# route_key null: the home records the captain's disposition through its own
+# channel). A captain-hold row keeps its hold_bucket rules: live cards by default,
+# blocked/dated/aged card only under --all-decisions and otherwise render as
+# Charted Next gates. A needs_captain lane never also renders as a Charted Next
+# gate, so every captain wait lands in exactly one decision bucket.
+#
+# Truncation is always disclosed. The snapshot layer caps each home's
+# decisions_open at FM_SNAPSHOT_SECONDMATE_DECISIONS and records the overflow in
+# that home's omitted[]; this wrapper propagates every decisions_open omission
+# into its own omitted[] so a truncated decision set can never read complete.
+# decisions_integrity carries, per home, the live captain-gated count from the
+# canonical source rows (live holds, keyed needs-decision status lines, and
+# needs_captain lanes, independent of the --all-decisions reveal) and the carded
+# count of that home's rows in the EMITTED decisions_open deck, after the
+# decisions bound; divergent is true when a home has live captain waits
+# (gated > 0) but zero of its rows reached the emitted deck, so a renderer can
+# never claim "no decisions" while the fleet's structure says waits exist. The
+# board build refuses a payload that would publish zero Captain's Call cards
+# while the diagnostic reports unaccounted live waits.
+#
 # Ordinary Charted Next gates are ordered by durable filed date, newest first,
 # before the FM_BEARINGS_GATES bound is applied. Gates without a comparable filed
 # date keep their input order after dated gates. The synthetic (return-catchup)
@@ -82,8 +108,13 @@
 # card needs: each decisions_open row carries detail (the owning home's own
 # recorded wording) and, for secondmate rows, route_key - the open parent-channel
 # decision key (captain-hold-<task>-<n>) a captain answer is routed back through
-# via the parent decision-answer path (fm-send --resolve-key). The bearings
-# skill owns the board composition and answer-routing procedure.
+# via the parent decision-answer path (fm-send --resolve-key). Status-sourced
+# needs-decision rows and needs_captain lane rows carry route_key null: an open
+# parent-channel key may exist for a status row only when its key follows the
+# captain-hold-<task>-<n> convention, and a lane has no parent channel decision
+# record, so their answers are captured on the board and reported for the owner
+# to record through its own channel. The bearings skill owns the board
+# composition and answer-routing procedure.
 #
 # An open away-return catch-up is disclosed the same way, as a single action-free
 # (return-catchup) gate row naming the blockers left to clear or the reason the
@@ -453,6 +484,20 @@ MODEL=$(printf '%s' "$SNAP" | jq \
        # ms9-owner) would cross-match and route the answer to the wrong call.
        | select(startswith($prefix) and (ltrimstr($prefix) | test("^[0-9]+$"))) ] | .[0]) // null;
   def live_captain_call: .hold_bucket == "live";
+  # A decisions_open row cards as a captain-facing wait when it is a keyed open
+  # needs-decision status-line row (live by construction: status_open_decisions
+  # keeps it only until resolved) or a backlog captain-hold that is live (or
+  # revealed by --all-decisions, which also reveals blocked/dated/aged holds).
+  def row_cards:
+    if .verb == "needs-decision" then true
+    elif .verb == "captain-hold" then (($all_decisions == 1) or live_captain_call)
+    else false end;
+  # The canonical live captain-gated predicate for the integrity count: the rows
+  # that MUST card in the default view, independent of the --all-decisions
+  # reveal, so gated reflects each home live unanswered set while carded
+  # reflects what the bounded projection actually emitted.
+  def row_gated:
+    .verb == "needs-decision" or (.verb == "captain-hold" and live_captain_call);
   def projected_deferred_hold:
     .hold_bucket != null and .hold_bucket != "live";
   def bounded_blocker_note($n):
@@ -530,14 +575,21 @@ MODEL=$(printf '%s' "$SNAP" | jq \
          | select(.endpoint.exists == false or .endpoint.agent_alive == "dead")
          | {id:($m.id + "/" + .id),backend:"secondmate-home",target:(.endpoint.target // "-"),exists:.endpoint.exists,agent:.endpoint.agent_alive} ]) as $unhealthy_all
   | ([ (.secondmate_current.records // [])[]
-       | ([.decisions_open[]? | select(.source == "backlog" and .verb == "captain-hold"
-            and live_captain_call)]) as $captain_holds
+       | ([(."decisions_open" // [])[]? | select(row_cards)]
+          + [ ((.lane_status // null) as $ls
+               | if $ls == null then []
+                 elif $ls.available != true then []
+                 else [ $ls.lanes[]?
+                   | select(.needs_captain == true and (.state != "done" and .state != "failed"))
+                   | {id,summary:(.name // .id)} ]
+               end )[] ]) as $captain_holds
        | ([.holds[]? | select(.source == "backlog")]) as $backlog_holds
        | . + {
            bearings_captain_holds:$captain_holds,
            bearings_holds:(if .current.state == "captain_decision" then $backlog_holds else .holds end),
            bearings_state:(
-             if .current.state == "captain_decision" then
+             if ($captain_holds | length) > 0 and .provenance.summary_valid == true then "captain_decision"
+             elif .current.state == "captain_decision" then
                if ($captain_holds | length) > 0 then "captain_decision"
                elif (.active_children | length) > 0 then "active_child_work"
                elif ($backlog_holds | length) > 0 then "externally_held"
@@ -561,6 +613,9 @@ MODEL=$(printf '%s' "$SNAP" | jq \
           source:"verified-lane-status", as_of:.as_of} ]) as $lane_underway
   | ([ $lane_docs[] as $d | $d.lanes[]
        | select(.state == "waiting" or .state == "blocked" or .state == "queued" or .state == "paused")
+       # A needs_captain lane is a captain-facing wait and cards as its own
+       # decision, so it must not also render as a Charted Next gate.
+       | select(.needs_captain != true)
        | {id:($d.mate + "/" + .id),
           title:(.name | trunc(60)),
           blocked_by:((if (.gates | length) > 0 then (.gates | join(",")) else "-" end) | trunc(120)),
@@ -632,10 +687,17 @@ MODEL=$(printf '%s' "$SNAP" | jq \
             summary:hold_summary(.title; .hold_reason),owner:"(main)",
             detail:((.body_excerpt // null) | if . == null then null else trunc(240) end),
             route_key:null} ]
+     + [ .tasks[]
+         | select(.kind != "secondmate")
+         | . as $t
+         | .hints.open_decisions[]?
+         | select(.verb == "needs-decision")
+         | {id:$t.id,key,verb:"needs-decision",
+            summary:(.summary | trunc(160)),reason:null,
+            owner:"(main)",detail:null,route_key:null} ]
      + [ (.secondmate_current.records // [])[] as $m
          | ([ $m.decisions_open[]?
-              | select(.source == "backlog" and .verb == "captain-hold")
-              | select(($all_decisions == 1) or live_captain_call)
+              | select(row_cards)
               | {id:($m.id + "/" + .id),key,verb,
                  summary:hold_summary((.summary // .id);
                                       (.reason // "captain decision pending")),owner:$m.id,
@@ -645,14 +707,28 @@ MODEL=$(printf '%s' "$SNAP" | jq \
                 | select($all_decisions == 1 and .hold_kind == "captain")
                 | select(.id as $id
                          | [$m.decisions_open[]?
-                            | select(.source == "backlog" and .verb == "captain-hold")
+                            | select(row_cards)
                             | .id]
                          | index($id) | not)
                 | {id:($m.id + "/" + .id),key:.id,verb:"captain-hold",
                    summary:hold_summary((.title // .id);
                                         (.hold_reason // "captain decision pending")),owner:$m.id,
                    detail:null,
-                   route_key:mate_route_key($m; .id)} ])[] ]) as $decisions_all
+                   route_key:mate_route_key($m; .id)} ]
+            + [ (($m.lane_status // null) as $ls
+                 | if $ls == null then []
+                   elif $ls.available != true then []
+                   else [ $ls.lanes[]?
+                     | select(.needs_captain == true and (.state != "done" and .state != "failed"))
+                     | {id:($m.id + "/" + .id), key:.id, verb:"captain-hold",
+                        summary:hold_summary((.name // .id);
+                                             (if ((.gates // []) | length) > 0 then (.gates | join(" + ")) else "captain gate" end)),
+                        owner:$m.id,
+                        source:"verified-lane-status",
+                        detail:(((.gates // []) | join(" + "))
+                                 | if . == "" then null else trunc(240) end),
+                        route_key:null} ]
+                 end )[] ])[] ]) as $decisions_all
   | ([ .backlog.records[]
          | . as $record
          | select(.structured and projected_deferred_hold) ]
@@ -720,6 +796,23 @@ MODEL=$(printf '%s' "$SNAP" | jq \
           | if $epoch == null then [1, 0, .key] else [0, -$epoch, .key] end)
       | map(.value);
     . as $snap
+  | (if $all_decisions == 1 then $decisions_all else $decisions_all[:$decisions_n] end) as $decisions_emitted
+  | ( [ {home:"(main)",
+         gated:(([.backlog.records[]? | select(.structured and .hold_bucket != null and .captain_actionable == true)] | length)
+                + ([.tasks[]? | select(.kind != "secondmate") | .hints.open_decisions[]? | select(.verb == "needs-decision")] | length)),
+         carded:([$decisions_emitted[]? | select(.owner == "(main)")] | length)} ]
+      + [ (.secondmate_current.records // [])[] as $m
+          | {home:$m.id,
+             gated:(([$m.decisions_open[]? | select(row_gated)] | length)
+                    + (($m.lane_status // null) as $ls
+                       | if $ls == null then 0
+                         elif $ls.available != true then 0
+                         else ([ $ls.lanes[]? | select(.needs_captain == true and (.state != "done" and .state != "failed")) ] | length)
+                         end)),
+             carded:([$decisions_emitted[]? | select(.owner == $m.id)] | length)} ]) as $decisions_integrity_homes
+  | ($decisions_integrity_homes | map(.gated) | add // 0) as $decisions_gated
+  | ($decisions_integrity_homes | map(.carded) | add // 0) as $decisions_carded
+  | (any($decisions_integrity_homes[]; .gated > 0 and .carded == 0)) as $decisions_divergent
   | {
       schema: "fm-bearings.v1",
       home: $home,
@@ -761,7 +854,13 @@ MODEL=$(printf '%s' "$SNAP" | jq \
         + [ (.secondmate_current.records // [])[]
         | select((.lane_status // null) != null and (.lane_status.refresh_due // false) == true)
         | {id, spawn_gen:(.spawn_gen // null), host:(.host // null), kind:"lane_status_stale", ids:[]} ]),
-      decisions_open: (if $all_decisions == 1 then $decisions_all else $decisions_all[:$decisions_n] end),
+      decisions_open: $decisions_emitted,
+      decisions_integrity: {
+        gated:$decisions_gated,
+        carded:$decisions_carded,
+        divergent:$decisions_divergent,
+        homes:$decisions_integrity_homes
+      },
       landed: ($done | map({id, what:(.title | trunc(70)),
                             artifact:(landed_artifact // "-"),owner:.home_id})),
       gates: ($return_catchup_gate
@@ -797,6 +896,10 @@ MODEL=$(printf '%s' "$SNAP" | jq \
         (($snap.secondmate_current.records // [])[] as $m
          | ([($m.omitted // [])[] | select(.surface == "active_children") | .count] | add // 0) as $n
          | if $n > 0 then {surface:("secondmate " + $m.id + " active children omitted by snapshot bound: \($n)"), reveal:"raise FM_SNAPSHOT_SECONDMATE_CHILDREN"} else empty end),
+        (($snap.secondmate_current.records // [])[] as $m
+         | ([($m.omitted // [])[] | select(.surface == "decisions_open") | .count] | add // 0) as $n
+         | if $n > 0 then {surface:("secondmate " + $m.id + " decisions omitted by snapshot bound: \($n)"), reveal:"raise FM_SNAPSHOT_SECONDMATE_DECISIONS"} else empty end),
+        (if $decisions_divergent == true then {surface:"live captain-gated waits exist but no decision cards were projected - inspect decisions_integrity.homes", reveal:"re-run with --all-decisions and card every revealed row"} else empty end),
         (if $all_secondmates == 0 and ($secondmates_all | length) > $secondmates_n then {surface:("secondmates showing \($secondmates_n) of \($secondmates_all | length)"), reveal:"--all-secondmates"} else empty end),
         (if (($snap.secondmate_current.truncated // 0) > 0) then {surface:("registered secondmates omitted by snapshot bound: \($snap.secondmate_current.truncated)"), reveal:"raise FM_SNAPSHOT_SECONDMATES"} else empty end),
         (if $snap.secondmate_current.registry.input_truncated == true then {surface:"secondmate registry input truncated by bounded read", reveal:"raise FM_SNAPSHOT_REGISTRY_LINES or FM_SNAPSHOT_REGISTRY_BYTES"} else empty end),

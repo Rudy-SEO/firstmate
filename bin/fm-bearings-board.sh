@@ -94,6 +94,25 @@
 # a Charted Next id may carry one `<home>/<lane>` scoping segment for
 # cross-home verified rows.
 #
+# THE DIVERGENCE REFUSAL. The payload MUST carry `decisions_integrity` (the
+# snapshot's diagnostic: gated, carded, divergent, homes), so the refusal
+# covers every composable payload. The validator requires it with number
+# gated/carded, boolean divergent, and an array
+# homes, and build REFUSES a final effective payload whose Captain's Call is
+# empty while the diagnostic reports live captain-gated waits: when
+# divergent is true, or when gated exceeds the deck's bundled-hold notices -
+# Charted Next warning rows carrying `notice: "bundled-hold"`, plus
+# `charted_bundled_more` for marked rows truncated out of charted[]. A
+# bundled hold pending re-record legitimately projects as that marked
+# warning row instead of a card; the routine integrity warning rows carry no
+# notice marker and never account for a wait, and every other gated wait
+# must card. Live
+# captain-gated waits exist in the fleet's structured state but no decision
+# card was composed, so "Nothing needs your action right now" would be a
+# false claim. The composer resolves a refused payload by re-running the
+# snapshot with --all-decisions and carding every revealed decision row,
+# never by acking the diagnostic away.
+#
 # The board path is stable - $FM_HOME/.lavish/bearings-board.html - so a
 # re-invocation rebuilds the same file in place, which keeps the same Lavish
 # session URL and the same canonical process-event source id. Injection escapes
@@ -213,9 +232,19 @@ validate_payload() {  # <data.json>
       and (.title | nonempty_string) and (.reason | type == "string")
       and (.dispatchable | type == "boolean")
       and ((has("kind") | not) or (.kind == "queued" or .kind == "warning"))
+      and ((has("notice") | not) or (.notice == "bundled-hold" and .kind == "warning"))
       and optional_filed
       and optional_source and optional_as_of
       and (if .kind == "warning" then .dispatchable == false else true end);
+    def decisions_integrity_marker:
+      # Required, not optional: the empty-call refusal is sound only when
+      # every composable payload carries the live captain-gated counts.
+      (.decisions_integrity
+        | type == "object"
+          and ((.gated | type) == "number") and (.gated | (type == "number" and . >= 0 and floor == .))
+          and ((.carded | type) == "number") and (.carded | (type == "number" and . >= 0 and floor == .))
+          and (.divergent | type) == "boolean"
+          and ((.homes | type) == "array"));
     type == "object"
     and (.schema == $schema)
     and (.home | nonempty_string)
@@ -225,10 +254,14 @@ validate_payload() {  # <data.json>
     and (.underway | type == "array")
     and (.landed | type == "array")
     and (.charted | type == "array")
+    and decisions_integrity_marker
     and ((has("charted_more") | not)
       or ((.charted_more | type == "number") and (.charted_more >= 0) and (.charted_more | floor == .)))
     and ((has("charted_warning_more") | not)
       or ((.charted_warning_more | type == "number") and (.charted_warning_more >= 0) and (.charted_warning_more | floor == .)))
+    and ((has("charted_bundled_more") | not)
+      or ((.charted_bundled_more | type == "number") and (.charted_bundled_more >= 0) and (.charted_bundled_more | floor == .)
+        and (.charted_bundled_more <= (.charted_warning_more // 0))))
     and ([.captains_call[] | call_item] | all)
     and ([.underway[] | underway_item] | all)
     and ([.landed[] | landed_item] | all)
@@ -405,6 +438,28 @@ command_build() {
   if ! effective_payload "$data" "$effective"; then
     rm -f -- "$effective"
     fail "cannot reconcile the board payload against landed work"
+  fi
+  # The board can never publish zero Captain's Call cards while the fleet's
+  # structured state reports live captain-gated waits. decisions_integrity is
+  # the snapshot's diagnostic: gated counts the live waits in the structured
+  # source, so an empty call refuses whenever gated waits are unaccounted for,
+  # not only when the snapshot itself flagged divergence - a composer that
+  # dropped every card is caught here too. The one legitimate empty-call deck
+  # is a bundled hold pending re-record, which projects as a Charted Next
+  # warning row carrying notice "bundled-hold" instead of a card; only those
+  # marked rows account for gated waits - the routine integrity warning rows
+  # never do - plus charted_bundled_more for marked rows the payload truncated
+  # out of charted[].
+  if jq -e '
+      (.decisions_integrity // null) as $di
+      | $di != null
+        and (.captains_call | length) == 0
+        and (($di.divergent == true)
+             or ($di.gated > (([.charted[]? | select(.kind == "warning" and .notice == "bundled-hold")] | length)
+                              + (.charted_bundled_more // 0))))
+    ' "$effective" >/dev/null 2>&1; then
+    rm -f -- "$effective"
+    fail "refusing an empty Captain's Call while decisions_integrity reports live captain-gated waits with no decision cards composed (beyond bundled-hold notice rows); re-run the snapshot with --all-decisions and card every revealed row"
   fi
   json=$(jq -c . "$effective") || { rm -f -- "$effective"; fail "cannot compact the board data"; }
   rm -f -- "$effective"
