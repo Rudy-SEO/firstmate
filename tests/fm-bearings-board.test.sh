@@ -350,9 +350,11 @@ test_build_refuses_malformed_payloads_before_touching_the_board() {
 # decisions_integrity diagnostic reports live captain-gated waits. A payload
 # carrying decisions_integrity.divergent true with zero cards refuses; an
 # empty call also refuses when gated waits exceed the deck's bundled-hold
-# warning rows even with divergent false (a composer that dropped every card
-# is caught too), while a bundled hold projecting as its warning row keeps an
-# empty call legitimate; a composed card passes and the flag is validated.
+# notices even with divergent false (a composer that dropped every card is
+# caught too). Only warning rows carrying notice "bundled-hold" - plus
+# charted_bundled_more for truncated ones - account for gated waits: a
+# routine integrity warning row without the marker never masks a dropped
+# card; a composed card passes and the flag and marker are validated.
 test_build_refuses_an_empty_call_under_a_divergent_diagnostic() {
   local home data board out rc
   home=$(make_home divergent)
@@ -382,17 +384,46 @@ test_build_refuses_an_empty_call_under_a_divergent_diagnostic() {
 
   write_valid_payload "$data"
   jq '.captains_call = []
-      | .charted += [{id:"bundled-hold", repo:"sample", title:"Bundled hold pending re-record", reason:"re-record one hold per call", dispatchable:false, kind:"warning"}]
+      | .charted += [{id:"bundled-hold", repo:"sample", title:"Bundled hold pending re-record", reason:"re-record one hold per call", dispatchable:false, kind:"warning", notice:"bundled-hold"}]
       | .decisions_integrity = {gated:1, carded:1, divergent:false, homes:[{home:"domain-alpha", gated:1, carded:1}]}' \
     "$data" > "$data.tmp" && mv "$data.tmp" "$data"
   run_board "$home" build "$data" >/dev/null 2>&1 \
-    || fail "an empty Captain's Call fully accounted for by a bundled-hold warning row was refused"
+    || fail "an empty Captain's Call fully accounted for by a bundled-hold notice row was refused"
+
+  write_valid_payload "$data"
+  jq '.captains_call = []
+      | .charted += [{id:"return-catchup", repo:"sample", title:"Away-return catch-up is still open", reason:"away-return catch-up", dispatchable:false, kind:"warning"}]
+      | .decisions_integrity = {gated:1, carded:1, divergent:false, homes:[{home:"domain-alpha", gated:1, carded:1}]}' \
+    "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
+  [ "$rc" -ne 0 ] || fail "a routine integrity warning row masked a dropped decision card"
+  assert_contains "$out" "decisions_integrity" "the unmarked-warning empty-call refusal did not name the diagnostic: $out"
+
+  write_valid_payload "$data"
+  jq '.captains_call = []
+      | .charted_warning_more = 1 | .charted_bundled_more = 1
+      | .decisions_integrity = {gated:1, carded:1, divergent:false, homes:[{home:"domain-alpha", gated:1, carded:1}]}' \
+    "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  run_board "$home" build "$data" >/dev/null 2>&1 \
+    || fail "an empty Captain's Call accounted for by a truncated bundled-hold notice was refused"
 
   write_valid_payload "$data"
   jq '.decisions_integrity = {gated:"many", carded:2, divergent:false, homes:[]}' \
     "$data" > "$data.tmp" && mv "$data.tmp" "$data"
   set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
   [ "$rc" -ne 0 ] || fail "a malformed decisions_integrity marker was accepted"
+
+  write_valid_payload "$data"
+  jq '.charted[0].notice = "bundled-hold"' \
+    "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
+  [ "$rc" -ne 0 ] || fail "a bundled-hold notice on a non-warning charted row was accepted"
+
+  write_valid_payload "$data"
+  jq '.charted_bundled_more = 1' \
+    "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
+  [ "$rc" -ne 0 ] || fail "charted_bundled_more exceeding charted_warning_more was accepted"
   pass "build refuses an empty Captain's Call while gated waits are unaccounted for"
 }
 
