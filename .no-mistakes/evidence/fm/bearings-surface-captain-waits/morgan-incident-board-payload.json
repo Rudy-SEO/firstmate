@@ -1,0 +1,169 @@
+{
+  "schema": "fm-bearings-board.v1",
+  "home": "captain-home",
+  "generated": "2026-07-11T18:00Z",
+  "prs_live": false,
+  "captains_call": [
+    {
+      "key": "window",
+      "type": "decision",
+      "repo": "sample",
+      "title": "pick relaunch window A or B",
+      "decide": "Decide now?",
+      "options": [
+        {
+          "value": "approve",
+          "label": "Approve"
+        },
+        {
+          "value": "hold",
+          "label": "Hold"
+        }
+      ]
+    },
+    {
+      "key": "morgan/trackw-review",
+      "owner": "morgan",
+      "type": "decision",
+      "repo": "sample",
+      "title": "Track W W-0/W-9 + D-019 UX review: approve the UX review",
+      "decide": "Decide now?",
+      "options": [
+        {
+          "value": "approve",
+          "label": "Approve"
+        },
+        {
+          "value": "hold",
+          "label": "Hold"
+        }
+      ]
+    },
+    {
+      "key": "morgan/solo-runs",
+      "owner": "morgan",
+      "type": "decision",
+      "repo": "sample",
+      "title": "approve MS-15 solo runs for J and Kerri: captain decision pending",
+      "decide": "Decide now?",
+      "options": [
+        {
+          "value": "approve",
+          "label": "Approve"
+        },
+        {
+          "value": "hold",
+          "label": "Hold"
+        }
+      ]
+    },
+    {
+      "key": "morgan/launch-prep",
+      "owner": "morgan",
+      "type": "decision",
+      "repo": "sample",
+      "title": "approve Q35/Q39 launch-prep plan: captain decision pending",
+      "decide": "Decide now?",
+      "options": [
+        {
+          "value": "approve",
+          "label": "Approve"
+        },
+        {
+          "value": "hold",
+          "label": "Hold"
+        }
+      ]
+    },
+    {
+      "key": "morgan/slack-oauth-push",
+      "owner": "morgan",
+      "type": "decision",
+      "repo": "sample",
+      "title": "Slack-OAuth 7-file shipping block: captain push word",
+      "decide": "Decide now?",
+      "options": [
+        {
+          "value": "approve",
+          "label": "Approve"
+        },
+        {
+          "value": "hold",
+          "label": "Hold"
+        }
+      ]
+    },
+    {
+      "key": "morgan/ms6-drill-push",
+      "owner": "morgan",
+      "type": "decision",
+      "repo": "sample",
+      "title": "ms6_drill.py push: captain push word",
+      "decide": "Decide now?",
+      "options": [
+        {
+          "value": "approve",
+          "label": "Approve"
+        },
+        {
+          "value": "hold",
+          "label": "Hold"
+        }
+      ]
+    },
+    {
+      "key": "morgan/identity-retarget-push",
+      "owner": "morgan",
+      "type": "decision",
+      "repo": "sample",
+      "title": "identity/constants.py retarget: captain gate",
+      "decide": "Decide now?",
+      "options": [
+        {
+          "value": "approve",
+          "label": "Approve"
+        },
+        {
+          "value": "hold",
+          "label": "Hold"
+        }
+      ]
+    }
+  ],
+  "underway": [],
+  "landed": [],
+  "charted": [
+    {
+      "id": "contradictionmorgan",
+      "repo": "sample",
+      "title": "captain_decision: parent/terminal evidence disagrees",
+      "reason": "-",
+      "dispatchable": false,
+      "kind": "warning"
+    },
+    {
+      "id": "morgan/host-wait",
+      "repo": "sample",
+      "title": "Host lane",
+      "reason": "HOST commit + push",
+      "dispatchable": false
+    }
+  ],
+  "decisions_integrity": {
+    "gated": 7,
+    "carded": 7,
+    "divergent": false,
+    "homes": [
+      {
+        "home": "(main)",
+        "gated": 1,
+        "carded": 1
+      },
+      {
+        "home": "morgan",
+        "gated": 6,
+        "carded": 6
+      }
+    ]
+  }
+}

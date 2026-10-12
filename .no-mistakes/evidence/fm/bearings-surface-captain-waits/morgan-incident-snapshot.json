@@ -1,0 +1,211 @@
+{
+  "schema": "fm-bearings.v1",
+  "home": "fm-test-phase-morgan.SvHU1o/captain-home",
+  "generated": "2026-07-11T18:00:00Z",
+  "prs": "not_requested (run: /bearings include PRs)",
+  "contributions": {
+    "scope": "owned contributions per home",
+    "known": 0,
+    "checked": 0,
+    "counts": {
+      "captain": 0,
+      "fleet": 0,
+      "maintainer": 0,
+      "nobody": 0
+    },
+    "complete": true,
+    "proven_clear": true,
+    "unmeasured_homes": 0,
+    "unreadable_records": 0,
+    "unmeasured": 0,
+    "stale_verdicts": 0,
+    "missing_verdicts": 0,
+    "captain_omitted": 0,
+    "captain": []
+  },
+  "in_flight": [
+    {
+      "id": "dead-relaunch",
+      "kind": "ship",
+      "state": "unknown",
+      "repo": "sample",
+      "name": "dead-relaunch",
+      "doing": "backend target gone: firstmate:fm-dead-relaunch",
+      "source": null,
+      "as_of": null
+    }
+  ],
+  "secondmates": [
+    {
+      "id": "morgan",
+      "state": "captain_decision",
+      "doing": "Track W W-0/W-9 + D-019 UX review; approve MS-15 solo runs for J and Kerri; approve Q35/Q39 launch-prep plan; Slack-OAut…",
+      "provenance": "structured-home",
+      "freshness": "fresh",
+      "age_seconds": 0,
+      "contradiction": true,
+      "reason": "-",
+      "lane": "fresh (0m)"
+    }
+  ],
+  "secondmate_reconcile": [
+    {
+      "id": "morgan",
+      "spawn_gen": null,
+      "host": null,
+      "kind": null,
+      "ids": []
+    }
+  ],
+  "decisions_open": [
+    {
+      "id": "dead-relaunch",
+      "key": "window",
+      "verb": "needs-decision",
+      "summary": "pick relaunch window A or B",
+      "reason": null,
+      "owner": "(main)",
+      "detail": null,
+      "route_key": null
+    },
+    {
+      "id": "morgan/trackw-review",
+      "key": "trackw-review",
+      "verb": "captain-hold",
+      "summary": "Track W W-0/W-9 + D-019 UX review: approve the UX review",
+      "owner": "morgan",
+      "detail": null,
+      "route_key": null
+    },
+    {
+      "id": "morgan/ms15",
+      "key": "solo-runs",
+      "verb": "needs-decision",
+      "summary": "approve MS-15 solo runs for J and Kerri: captain decision pending",
+      "owner": "morgan",
+      "detail": null,
+      "route_key": null
+    },
+    {
+      "id": "morgan/q35",
+      "key": "launch-prep",
+      "verb": "needs-decision",
+      "summary": "approve Q35/Q39 launch-prep plan: captain decision pending",
+      "owner": "morgan",
+      "detail": null,
+      "route_key": null
+    },
+    {
+      "id": "morgan/slack-oauth-push",
+      "key": "slack-oauth-push",
+      "verb": "captain-hold",
+      "summary": "Slack-OAuth 7-file shipping block: captain push word",
+      "owner": "morgan",
+      "source": "verified-lane-status",
+      "detail": "captain push word",
+      "route_key": null
+    },
+    {
+      "id": "morgan/ms6-drill-push",
+      "key": "ms6-drill-push",
+      "verb": "captain-hold",
+      "summary": "ms6_drill.py push: captain push word",
+      "owner": "morgan",
+      "source": "verified-lane-status",
+      "detail": "captain push word",
+      "route_key": null
+    },
+    {
+      "id": "morgan/identity-retarget-push",
+      "key": "identity-retarget-push",
+      "verb": "captain-hold",
+      "summary": "identity/constants.py retarget: captain gate",
+      "owner": "morgan",
+      "source": "verified-lane-status",
+      "detail": null,
+      "route_key": null
+    }
+  ],
+  "decisions_integrity": {
+    "gated": 7,
+    "carded": 7,
+    "divergent": false,
+    "homes": [
+      {
+        "home": "(main)",
+        "gated": 1,
+        "carded": 1
+      },
+      {
+        "home": "morgan",
+        "gated": 6,
+        "carded": 6
+      }
+    ]
+  },
+  "landed": [],
+  "gates": [
+    {
+      "id": "(contradiction:morgan)",
+      "title": "captain_decision: parent/terminal evidence disagrees",
+      "blocked_by": "-",
+      "reason": "parent/terminal evidence contradicts structured state",
+      "owner": "morgan",
+      "filed": null,
+      "source": null
+    },
+    {
+      "id": "morgan/host-wait",
+      "title": "Host lane",
+      "blocked_by": "HOST commit + push",
+      "reason": "waiting; verified 1d ago",
+      "owner": "morgan",
+      "filed": "2026-07-10T17:59:00Z",
+      "source": "verified-lane-status"
+    }
+  ],
+  "reports": [],
+  "recorded_prs": [],
+  "unhealthy_endpoints": [
+    {
+      "id": "dead-relaunch",
+      "backend": "tmux",
+      "target": "firstmate:fm-dead-relaunch",
+      "exists": false,
+      "agent": "not_checked"
+    },
+    {
+      "id": "morgan",
+      "backend": "tmux",
+      "target": "firstmate:fm-morgan",
+      "exists": true,
+      "agent": "dead"
+    }
+  ],
+  "omitted": [
+    {
+      "surface": "backlog item bodies",
+      "reveal": "--fields bodies"
+    },
+    {
+      "surface": "task paths",
+      "reveal": "--fields paths"
+    },
+    {
+      "surface": "watch/steer actions",
+      "reveal": "--fields actions"
+    },
+    {
+      "surface": "healthy endpoint detail",
+      "reveal": "--fields endpoints"
+    },
+    {
+      "surface": "full scout-report inventory",
+      "reveal": "--all-reports"
+    },
+    {
+      "surface": "live PR discovery + checks",
+      "reveal": "--include-prs"
+    }
+  ]
+}

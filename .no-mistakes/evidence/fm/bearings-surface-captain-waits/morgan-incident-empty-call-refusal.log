@@ -1,0 +1,4 @@
+exit=1
+fm-bearings-board: refusing an empty Captain's Call while decisions_integrity reports live captain-gated waits with no decision cards composed (beyond bundled-hold notice rows); re-run the snapshot with --all-decisions and card every revealed row
+exit=1
+fm-bearings-board: refusing an empty Captain's Call while decisions_integrity reports live captain-gated waits with no decision cards composed (beyond bundled-hold notice rows); re-run the snapshot with --all-decisions and card every revealed row
