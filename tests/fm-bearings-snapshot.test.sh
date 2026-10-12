@@ -1662,6 +1662,8 @@ test_section_caps_and_expansion_flags() {
     and ([.omitted[].surface] | index("reports showing 2 of 5") != null)
     and ([.omitted[].surface] | index("recorded_prs showing 2 of 5") != null)
     and ([.omitted[].surface] | index("unhealthy_endpoints showing 2 of 5") != null)
+    and (.decisions_integrity.gated == 10) and (.decisions_integrity.carded == 2)
+    and (.decisions_integrity.divergent == false)
   ' >/dev/null || fail "section caps or counted omissions are wrong: $json"
   expanded=$(FM_BEARINGS_IN_FLIGHT=2 FM_BEARINGS_DECISIONS=2 FM_BEARINGS_GATES=2 \
     FM_BEARINGS_REPORTS=2 FM_BEARINGS_RECORDED_PRS=2 FM_BEARINGS_UNHEALTHY=2 \
@@ -1670,6 +1672,9 @@ test_section_caps_and_expansion_flags() {
   printf '%s' "$expanded" | jq -e '
     (.in_flight|length) == 5 and (.decisions_open|length) == 10 and (.gates|length) == 5
     and (.reports|length) == 5 and (.recorded_prs|length) == 5 and (.unhealthy_endpoints|length) == 5
+    and ([.decisions_open[] | select(.verb == "needs-decision") | .id] | sort
+         == ["dead-1","dead-2","dead-3","dead-4","dead-5"])
+    and (.decisions_integrity.gated == 10) and (.decisions_integrity.carded == 10)
   ' >/dev/null || fail "section expansion flags did not reveal full sets: $expanded"
   pass "all fleet-sized sections are capped with counted opt-in expansion"
 }

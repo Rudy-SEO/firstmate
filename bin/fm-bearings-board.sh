@@ -98,12 +98,15 @@
 # snapshot's diagnostic: gated, carded, divergent, homes). The validator
 # accepts it only with number gated/carded, boolean divergent, and an array
 # homes, and build REFUSES a final effective payload whose Captain's Call is
-# empty while decisions_integrity.divergent is true - live captain-gated
-# waits exist in the fleet's structured state but no decision card was
-# composed, so "Nothing needs your action right now" would be a false claim.
-# The composer resolves a divergent payload by re-running the snapshot with
-# --all-decisions and carding every revealed decision row, never by acking
-# the diagnostic away.
+# empty while the diagnostic reports live captain-gated waits: when
+# divergent is true, or when gated exceeds the deck's Charted Next warning
+# rows (a bundled hold pending re-record legitimately projects as a warning
+# row instead of a card; every other gated wait must card). Live
+# captain-gated waits exist in the fleet's structured state but no decision
+# card was composed, so "Nothing needs your action right now" would be a
+# false claim. The composer resolves a refused payload by re-running the
+# snapshot with --all-decisions and carding every revealed decision row,
+# never by acking the diagnostic away.
 #
 # The board path is stable - $FM_HOME/.lavish/bearings-board.html - so a
 # re-invocation rebuilds the same file in place, which keeps the same Lavish
@@ -428,13 +431,22 @@ command_build() {
   fi
   # The board can never publish zero Captain's Call cards while the fleet's
   # structured state reports live captain-gated waits. decisions_integrity is
-  # the snapshot's diagnostic; the composer cards every revealed row, so a
-  # divergent flag alongside an empty call is a composing or freshness error
-  # and refuses here rather than showing "Nothing needs your action" over a
-  # real wait.
-  if jq -e '.decisions_integrity.divergent == true and (.captains_call | length) == 0' "$effective" >/dev/null 2>&1; then
+  # the snapshot's diagnostic: gated counts the live waits in the structured
+  # source, so an empty call refuses whenever gated waits are unaccounted for,
+  # not only when the snapshot itself flagged divergence - a composer that
+  # dropped every card is caught here too. The one legitimate empty-call deck
+  # is a bundled hold pending re-record, which projects as a Charted Next
+  # warning row instead of a card, so each warning row accounts for one gated
+  # wait.
+  if jq -e '
+      (.decisions_integrity // null) as $di
+      | $di != null
+        and (.captains_call | length) == 0
+        and (($di.divergent == true)
+             or ($di.gated > ([.charted[]? | select(.kind == "warning")] | length)))
+    ' "$effective" >/dev/null 2>&1; then
     rm -f -- "$effective"
-    fail "refusing an empty Captain's Call while decisions_integrity.divergent is true (live captain-gated waits exist but no decision cards are composed); re-run the snapshot with --all-decisions and card every revealed row"
+    fail "refusing an empty Captain's Call while decisions_integrity reports live captain-gated waits with no decision cards composed (beyond bundled-hold warning rows); re-run the snapshot with --all-decisions and card every revealed row"
   fi
   json=$(jq -c . "$effective") || { rm -f -- "$effective"; fail "cannot compact the board data"; }
   rm -f -- "$effective"

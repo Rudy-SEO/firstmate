@@ -348,9 +348,11 @@ test_build_refuses_malformed_payloads_before_touching_the_board() {
 
 # The board can never publish an empty Captain's Call while the snapshot's
 # decisions_integrity diagnostic reports live captain-gated waits. A payload
-# carrying decisions_integrity.divergent true with zero cards refuses; the
-# same flag with a composed card passes (the composer cards every revealed
-# row and the flag itself is validated).
+# carrying decisions_integrity.divergent true with zero cards refuses; an
+# empty call also refuses when gated waits exceed the deck's bundled-hold
+# warning rows even with divergent false (a composer that dropped every card
+# is caught too), while a bundled hold projecting as its warning row keeps an
+# empty call legitimate; a composed card passes and the flag is validated.
 test_build_refuses_an_empty_call_under_a_divergent_diagnostic() {
   local home data board out rc
   home=$(make_home divergent)
@@ -362,7 +364,7 @@ test_build_refuses_an_empty_call_under_a_divergent_diagnostic() {
     "$data" > "$data.tmp" && mv "$data.tmp" "$data"
   set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
   [ "$rc" -ne 0 ] || fail "an empty Captain's Call under a divergent diagnostic was published"
-  assert_contains "$out" "decisions_integrity.divergent" "the divergent empty-call refusal did not name the diagnostic: $out"
+  assert_contains "$out" "decisions_integrity" "the divergent empty-call refusal did not name the diagnostic: $out"
   assert_absent "$board" "a refused divergent payload still produced a board"
 
   write_valid_payload "$data"
@@ -372,11 +374,26 @@ test_build_refuses_an_empty_call_under_a_divergent_diagnostic() {
     || fail "a healthy payload carrying decisions_integrity was refused"
 
   write_valid_payload "$data"
+  jq '.captains_call = [] | .decisions_integrity = {gated:1, carded:1, divergent:false, homes:[{home:"domain-alpha", gated:1, carded:1}]}' \
+    "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
+  [ "$rc" -ne 0 ] || fail "an empty Captain's Call with unaccounted gated waits was published"
+  assert_contains "$out" "decisions_integrity" "the gated empty-call refusal did not name the diagnostic: $out"
+
+  write_valid_payload "$data"
+  jq '.captains_call = []
+      | .charted += [{id:"bundled-hold", repo:"sample", title:"Bundled hold pending re-record", reason:"re-record one hold per call", dispatchable:false, kind:"warning"}]
+      | .decisions_integrity = {gated:1, carded:1, divergent:false, homes:[{home:"domain-alpha", gated:1, carded:1}]}' \
+    "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  run_board "$home" build "$data" >/dev/null 2>&1 \
+    || fail "an empty Captain's Call fully accounted for by a bundled-hold warning row was refused"
+
+  write_valid_payload "$data"
   jq '.decisions_integrity = {gated:"many", carded:2, divergent:false, homes:[]}' \
     "$data" > "$data.tmp" && mv "$data.tmp" "$data"
   set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
   [ "$rc" -ne 0 ] || fail "a malformed decisions_integrity marker was accepted"
-  pass "build refuses an empty Captain's Call only when the divergence diagnostic fires"
+  pass "build refuses an empty Captain's Call while gated waits are unaccounted for"
 }
 
 # The verified lane-status and secondmate-owner extensions are ordinary
