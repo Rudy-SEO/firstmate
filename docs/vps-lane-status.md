@@ -65,9 +65,7 @@ Each lane row:
 - `as_of`: the UTC verification instant for this row, `YYYY-MM-DDTHH:MM:SSZ`; usually the document-level `as_of`.
 - `gates`: array of strings naming what the lane waits on (approvals, dependencies); `[]` when nothing.
 - `needs_captain`: `true` only when the lane is waiting on the captain specifically.
-  This is the structured captain-wait signal: the bearings surface cards the lane as its own Captain's Call decision (one card per lane, `source "verified-lane-status"`), shown beside any backlog captain holds, and removes the lane from the Charted Next gates so it never double-reports.
-  The signal is not itself a backlog captain hold and never enters the owning home's captain-hold lifecycle; the captain's disposition on the card is routed back to the owning home, which records it through its own channel with the normal lifecycle.
-  When the producer needs a formal answer record, it still records a real captain hold through the normal captain-hold lifecycle, and the lane flag stays in step.
+  This is the structured captain-wait signal; its `/bearings` projection and answer handling are owned by [Captain waits](#captain-waits-needs_captain) below.
 
 ## Producing the document (read-only query steps)
 
@@ -101,6 +99,6 @@ A generic producer substitutes its own authoritative sources in `source` and fol
 ## Captain waits (`needs_captain`)
 
 A lane marked `needs_captain: true` is a captain-pleading gate - a push-word gate, a review gate, or any approval the producer verified is waiting on the captain specifically.
-It projects to `/bearings` as one Captain's Call decision card per lane, built from the lane's own `name` and `gates` wording, instead of a Charted Next gate.
-The owned lane card routes back to this home (the card's `owner` is this home's id), and this home records the captain's disposition through its own channel - a normal captain hold when a durable answer record is wanted.
+It projects to `/bearings` as one Captain's Call decision card per lane (`source "verified-lane-status"`), built from the lane's own `name` and `gates` wording and shown beside any backlog captain holds, instead of a Charted Next gate, so the wait never double-reports.
+The signal is not itself a backlog captain hold and never enters the owning home's captain-hold lifecycle: the owned lane card routes back to this home (the card's `owner` is this home's id), and this home records the captain's disposition through its own channel - a real captain hold through the normal lifecycle when a durable answer record is wanted, with the lane flag staying in step.
 This is what keeps the board truthful: a verified captain wait is a decision card, never hidden behind a queue row or an empty Captain's Call.
