@@ -70,7 +70,8 @@ cat > "$LAB/payload.json" <<'JSON'
   ],
   "underway": [],
   "landed": [],
-  "charted": []
+  "charted": [],
+  "decisions_integrity": { "gated": 0, "carded": 0, "divergent": false, "homes": [] }
 }
 JSON
 

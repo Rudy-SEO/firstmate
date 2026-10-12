@@ -94,9 +94,10 @@
 # a Charted Next id may carry one `<home>/<lane>` scoping segment for
 # cross-home verified rows.
 #
-# THE DIVERGENCE REFUSAL. The payload MAY carry `decisions_integrity` (the
-# snapshot's diagnostic: gated, carded, divergent, homes). The validator
-# accepts it only with number gated/carded, boolean divergent, and an array
+# THE DIVERGENCE REFUSAL. The payload MUST carry `decisions_integrity` (the
+# snapshot's diagnostic: gated, carded, divergent, homes), so the refusal
+# covers every composable payload. The validator requires it with number
+# gated/carded, boolean divergent, and an array
 # homes, and build REFUSES a final effective payload whose Captain's Call is
 # empty while the diagnostic reports live captain-gated waits: when
 # divergent is true, or when gated exceeds the deck's bundled-hold notices -
@@ -236,8 +237,9 @@ validate_payload() {  # <data.json>
       and optional_source and optional_as_of
       and (if .kind == "warning" then .dispatchable == false else true end);
     def decisions_integrity_marker:
-      (has("decisions_integrity") | not)
-      or (.decisions_integrity
+      # Required, not optional: the empty-call refusal is sound only when
+      # every composable payload carries the live captain-gated counts.
+      (.decisions_integrity
         | type == "object"
           and ((.gated | type) == "number") and (.gated | (type == "number" and . >= 0 and floor == .))
           and ((.carded | type) == "number") and (.carded | (type == "number" and . >= 0 and floor == .))

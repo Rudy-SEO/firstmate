@@ -177,7 +177,8 @@ write_valid_payload() {  # <path>
   "charted": [
     { "id": "sample-queued", "repo": "sample", "title": "Queued work", "reason": "", "dispatchable": true }
   ],
-  "charted_more": 0
+  "charted_more": 0,
+  "decisions_integrity": { "gated": 0, "carded": 0, "divergent": false, "homes": [] }
 }
 EOF
 }
@@ -424,7 +425,13 @@ test_build_refuses_an_empty_call_under_a_divergent_diagnostic() {
     "$data" > "$data.tmp" && mv "$data.tmp" "$data"
   set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
   [ "$rc" -ne 0 ] || fail "charted_bundled_more exceeding charted_warning_more was accepted"
-  pass "build refuses an empty Captain's Call while gated waits are unaccounted for"
+
+  write_valid_payload "$data"
+  jq 'del(.decisions_integrity)' \
+    "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
+  [ "$rc" -ne 0 ] || fail "a payload omitting decisions_integrity was accepted"
+  pass "build refuses an empty Captain's Call while gated waits are unaccounted for and requires the decisions_integrity diagnostic"
 }
 
 # The verified lane-status and secondmate-owner extensions are ordinary

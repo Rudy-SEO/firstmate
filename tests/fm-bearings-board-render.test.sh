@@ -100,7 +100,8 @@ render_board() {  # <home> <underway-json> <charted-json> [charted_more] [charte
     --argjson more "$more" --argjson warning_more "$warning_more" '{
     schema:"fm-bearings-board.v1", home:"render-home", generated:"2026-08-26T00:00Z",
     prs_live:false, captains_call:[], underway:$underway, landed:[],
-    charted:$charted, charted_more:$more, charted_warning_more:$warning_more}' > "$data"
+    charted:$charted, charted_more:$more, charted_warning_more:$warning_more,
+    decisions_integrity:{gated:0, carded:0, divergent:false, homes:[]}}' > "$data"
   PATH="$home/fakebin:$PATH" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
@@ -122,7 +123,8 @@ render_call() {  # <home> <captains-call-json>
   jq -n --argjson call "$call" '{
     schema:"fm-bearings-board.v1", home:"render-home", generated:"2026-10-08T00:00Z",
     prs_live:false, captains_call:$call, underway:[], landed:[],
-    charted:[]}' > "$data"
+    charted:[],
+    decisions_integrity:{gated:0, carded:0, divergent:false, homes:[]}}' > "$data"
   PATH="$home/fakebin:$PATH" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
