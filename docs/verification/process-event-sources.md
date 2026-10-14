@@ -6,6 +6,7 @@ This record holds reusable version-scoped evidence for the runner's active guara
 `docs/configuration.md` owns the operating contract, each script's header and `--help` own its mechanics, and `.agents/skills/process-event-sources/SKILL.md` owns the handling procedure.
 
 The published reply handoff was verified on 2026-09-29 on macOS (Darwin 25.5.0) with `lavish-axi` 0.1.80 installed.
+The transient poll interruption shape was re-verified on 2026-10-14 with `lavish-axi` 0.1.82: the SDK renders the same two interruption lines followed by a toon `help[N]:` suggestion line, and the adapter's quiet-retry filter accepts that exact help-suffixed shape (and only it) in addition to the bare two lines (see the filter's header comment and the 0.1.82 scenarios in `tests/fm-procevent.test.sh`).
 The poll lifecycle was first verified on 2026-07-31 with 0.1.45; generic keyed-answer feed was verified on 2026-08-16, and cross-origin keyed-answer feed on 2026-08-19.
 Trusted external `process-event-adapter/1` binding conformance and the runnable `file-signal` example were verified on 2026-08-27 on macOS (Darwin 25.5.0) with Node v25.9.0.
 

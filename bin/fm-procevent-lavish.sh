@@ -112,21 +112,30 @@
 # legacy poll-with-reply path, without the synchronous handoff guarantee.
 #
 # BOUNDED QUIET RETRY, owned here and nowhere else. A live listener can be cut
-# short by the server with exactly this two-line response while the session's
-# marks remain available:
+# short by the server with a response while the session's marks remain
+# available. Lavish renders that interruption through its CLI as these two
+# lines:
 #
 #   error: Lavish Editor poll response was interrupted
 #   code: SERVER_ERROR
 #
-# That is an internal retry, not news, so registering the raw poll made the
-# generic runner capture it and wake the whole fleet. `poll` therefore re-runs
-# the published poll up to POLL_RETRY_LIMIT times for that exact response, with
-# attempt starts at least POLL_RETRY_DELAY_DEFAULT seconds apart. The match is exact and
-# deliberately narrow: real feedback, ended and missing sessions, any other
-# SERVER_ERROR, and the same interruption still standing after the bound is
-# spent are all printed straight through and captured normally. The retry is a
-# Lavish fact, so the generic runner in bin/fm-procevent.sh stays
-# adapter-agnostic and learns nothing about it.
+# CLI 0.1.82 appends the SDK's help-suggestion line after them, in toon
+# short-array form:
+#
+#   help[2]: Run `lavish-axi server --verbose` ...
+#
+# Both shapes are the same internal retry, not news, so registering the raw poll
+# made the generic runner capture it and wake the whole fleet. `poll` therefore
+# re-runs the published poll up to POLL_RETRY_LIMIT times for that exact
+# interruption, with attempt starts at least POLL_RETRY_DELAY_DEFAULT seconds
+# apart. The match stays exact and deliberately narrow: the two error lines must
+# be byte-identical, and a help-suffixed shape must be exactly those two lines
+# plus one toon `help[N]:` suggestion line and nothing else. Real feedback,
+# ended and missing sessions, any other SERVER_ERROR, any longer response that
+# merely opens with the error lines, and the same interruption still standing
+# after the bound is spent are all printed straight through and captured
+# normally. The retry is a Lavish fact, so the generic runner in
+# bin/fm-procevent.sh stays adapter-agnostic and learns nothing about it.
 #
 # LOSS LIMITATION, stated plainly. The published poll destructively clears
 # feedback before returning it. A result lost after that clearing and before the
@@ -309,16 +318,19 @@ POLL_RETRY_DELAY_DEFAULT=5
 POLL_RETRY_DELAY_MIN=1
 POLL_RETRY_DELAY_MAX=60
 
-# Exit 0 only for the exact two-line interruption, and nothing else. The whole
-# response must be those two lines with those exact bytes: whitespace variants,
-# a longer response that merely opens with them, and any other SERVER_ERROR are
-# genuine errors this adapter must never swallow.
+# Exit 10 only for the interruption, and nothing else. The whole response must
+# be either the exact two error lines or exactly those two lines plus one toon
+# `help[N]:` suggestion line and its trailing newline, with nothing after:
+# whitespace variants, a longer response that merely opens with the error
+# lines, truncated help lines, and any other SERVER_ERROR are genuine errors
+# that exit 0 and this adapter must never swallow.
 poll_response_filter() {  # <response-file>
   perl -e '
     use strict;
     use warnings;
     my ($stage) = @ARGV;
-    my $expected = "error: Lavish Editor poll response was interrupted\ncode: SERVER_ERROR\n";
+    my $first = "error: Lavish Editor poll response was interrupted\ncode: SERVER_ERROR\n";
+    my $max_candidate = length($first) + 4096;
     open my $staged, ">", $stage or exit 2;
     binmode STDIN;
     binmode STDOUT;
@@ -333,6 +345,25 @@ poll_response_filter() {  # <response-file>
         $offset += $written;
       }
     }
+    sub help_prefix_ok {  # 1 while still a prefix of a toon help[N]: line
+      my ($t) = @_;
+      return 1 if $t =~ m{\A(?:h|he|hel|help)?\z};
+      return 1 if $t =~ m{\Ahelp\[\d*\z};
+      return 1 if $t =~ m{\Ahelp\[\d+\]\z};
+      return 1 if $t =~ m{\Ahelp\[\d+\]:\z};
+      return 1 if $t =~ m{\Ahelp\[\d+\]: \z};
+      return 1 if $t =~ m{\Ahelp\[\d+\]: [^\r\n]*\n?\z};
+      return 0;
+    }
+    sub interruption_prefix {  # 1 while $bytes can still grow into an accepted shape
+      my ($bytes) = @_;
+      my $flen = length $first;
+      if (length($bytes) <= $flen) {
+        return substr($first, 0, length($bytes)) eq $bytes;
+      }
+      return 0 unless substr($bytes, 0, $flen) eq $first;
+      return help_prefix_ok(substr($bytes, $flen));
+    }
     while (1) {
       my $count = sysread STDIN, my $chunk, 65536;
       exit 2 unless defined $count;
@@ -341,21 +372,34 @@ poll_response_filter() {  # <response-file>
         write_all(*STDOUT, $chunk);
         next;
       }
-      my $room = length($expected) + 1 - length($candidate);
-      my $take = length($chunk) < $room ? length($chunk) : $room;
-      my $prefix = substr($chunk, 0, $take);
-      $candidate .= $prefix;
-      write_all($staged, $prefix);
-      my $matches_prefix = length($candidate) <= length($expected)
-        && substr($expected, 0, length($candidate)) eq $candidate;
-      if (!$matches_prefix) {
+      for (my $i = 0; $i < length $chunk; $i++) {
+        my $byte = substr($chunk, $i, 1);
+        my $next = $candidate . $byte;
+        if (length($next) <= $max_candidate && interruption_prefix($next)) {
+          $candidate = $next;
+          write_all($staged, $byte);
+          next;
+        }
         write_all(*STDOUT, $candidate);
-        write_all(*STDOUT, substr($chunk, $take));
+        write_all(*STDOUT, substr($chunk, $i));
+        $candidate = "";
         $streaming = 1;
+        last;
       }
     }
-    exit 10 if !$streaming && $candidate eq $expected;
-    write_all(*STDOUT, $candidate) unless $streaming;
+    if (!$streaming) {
+      my $flen = length $first;
+      my $exact;
+      if ($candidate eq $first) {
+        $exact = 1;
+      } elsif (length($candidate) > $flen && substr($candidate, 0, $flen) eq $first) {
+        $exact = substr($candidate, $flen) =~ m{\Ahelp\[\d+\]: [^\r\n]*\n\z};
+      }
+      if ($exact) {
+        exit 10;
+      }
+      write_all(*STDOUT, $candidate);
+    }
   ' "$1"
 }
 

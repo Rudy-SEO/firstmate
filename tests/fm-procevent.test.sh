@@ -1433,6 +1433,10 @@ i=$((n - 1))
 case "${plan[$i]}" in
   interrupt)
     printf 'error: Lavish Editor poll response was interrupted\ncode: SERVER_ERROR\n'; exit 1 ;;
+  interrupt-082)
+    printf 'error: Lavish Editor poll response was interrupted\ncode: SERVER_ERROR\nhelp[2]: Run `lavish-axi server --verbose` or inspect `~/.lavish-axi/server.log` (`LAVISH_AXI_STATE_DIR/server.log` when set) for server startup or crash diagnostics,Re-run the last `lavish-axi poll <html-file>` command after the server is healthy\n'; exit 1 ;;
+  interrupt-082-extra)
+    printf 'error: Lavish Editor poll response was interrupted\ncode: SERVER_ERROR\nhelp[2]: Run `lavish-axi server --verbose` over and over,Re-run the last `lavish-axi poll <html-file>` command\nNOT the interruption\n'; exit 1 ;;
   near-interrupt)
     printf 'error: Lavish Editor poll response was interrupted \ncode: SERVER_ERROR\n'; exit 1 ;;
   other-server-error)
@@ -1611,6 +1615,81 @@ assert_grep 'poll response was interrupted' "$(first_result "$HEXH" "$exh_id")" 
 PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$HEXH" \
   "$ROOT/bin/fm-procevent-lavish.sh" retire "$EXH_ART" >/dev/null
 pass "an interruption that outlives the bounded retries is captured and announced"
+
+# The installed CLI 0.1.82 appends the SDK's toon help-suggestion line after
+# the same two interruption lines. The quiet retry must treat that longer
+# exact shape as the same interruption, not as a real capture that wakes the
+# fleet, then surface the captain's real feedback once the server recovers.
+H082="$TMP_ROOT/h082"; new_home "$H082"
+H082_ART="$TMP_ROOT/082-board.html"
+printf '<h1>082</h1>\n' > "$H082_ART"
+lavish_session "$H082_ART"
+H082_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$H082_ART")
+fm_test_track_procevent_home "$H082"
+LAVISH_COUNT="$TMP_ROOT/H082-count"; LAVISH_SCRIPT="interrupt-082 interrupt-082 feedback"
+PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$H082" FM_LAVISH_POLL_RETRY_DELAY=1 \
+  "$ROOT/bin/fm-procevent-lavish.sh" arm "$H082_ART" >/dev/null
+PATH="$LAVISH_SCRIPTED_BIN:$PATH" pe "$H082" reconcile >/dev/null
+wait_for "$H082/state/.wake-queue" || fail "feedback after 0.1.82-shaped interruptions produced no wake"
+[ "$(cat "$LAVISH_COUNT")" = 3 ] \
+  || fail "the 0.1.82-shaped listener was polled $(cat "$LAVISH_COUNT") times, not the two quiet retries plus the delivering poll"
+[ "$(count_results "$H082" "$H082_id")" = 1 ] \
+  || fail "a retried 0.1.82 interruption produced $(count_results "$H082" "$H082_id") captured results instead of one"
+[ "$(wake_payloads "$H082" | sort -u | grep -c .)" = 1 ] \
+  || fail "a retried 0.1.82 interruption woke the fleet: $(wake_payloads "$H082" | sort -u)"
+assert_contains "$(wake_payloads "$H082")" "procevent lavish $H082_id 1" \
+  "feedback arriving after 0.1.82-shaped quiet retries is captured and announced"
+assert_grep 'ship it' "$(first_result "$H082" "$H082_id")" \
+  "the announced result after 0.1.82-shaped retries is the captain's feedback, not the interruption"
+PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$H082" \
+  "$ROOT/bin/fm-procevent-lavish.sh" retire "$H082_ART" >/dev/null
+pass "the 0.1.82 help-suffixed interruption is retried quietly and never announced"
+
+# Exhaustion of the 0.1.82 shape is news too: after the bounded retries the
+# same help-suffixed interruption is captured and announced normally rather
+# than being swallowed forever.
+HEXH082="$TMP_ROOT/hexh082"; new_home "$HEXH082"
+EXH082_ART="$TMP_ROOT/exh082-board.html"
+printf '<h1>exh082</h1>\n' > "$EXH082_ART"
+lavish_session "$EXH082_ART"
+exh082_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$EXH082_ART")
+fm_test_track_procevent_home "$HEXH082"
+LAVISH_COUNT="$TMP_ROOT/exh082-count"; LAVISH_SCRIPT="interrupt-082"
+PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$HEXH082" FM_LAVISH_POLL_RETRY_DELAY=1 \
+  "$ROOT/bin/fm-procevent-lavish.sh" arm "$EXH082_ART" >/dev/null
+wait_capture "$HEXH082" "$exh082_id" 200 \
+  || fail "0.1.82-shape exhaustion produced no captured result"
+[ "$(cat "$LAVISH_COUNT")" = 13 ] \
+  || fail "the 0.1.82-shape retry bound polled $(cat "$LAVISH_COUNT") times, not the first poll plus 12 bounded retries"
+wait_for "$HEXH082/state/.wake-queue" \
+  || fail "the 0.1.82-shaped interruption that survives the bound produced no wake"
+assert_grep "help[2]:" "$(first_result "$HEXH082" "$exh082_id")" \
+  "the announced result is the exact 0.1.82-shaped interruption the server returned"
+PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$HEXH082" \
+  "$ROOT/bin/fm-procevent-lavish.sh" retire "$EXH082_ART" >/dev/null
+pass "a 0.1.82-shaped interruption that outlives the bound is captured and announced"
+
+# A longer response that merely opens with the two error lines and even a help
+# line is not the interruption: the extra trailing line makes it a genuine
+# capture on the first poll, never a quiet retry.
+H082XTRA="$TMP_ROOT/h082xtra"; new_home "$H082XTRA"
+H082XTRA_ART="$TMP_ROOT/082x-board.html"
+printf '<h1>082extra</h1>\n' > "$H082XTRA_ART"
+lavish_session "$H082XTRA_ART"
+H082X_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$H082XTRA_ART")
+fm_test_track_procevent_home "$H082XTRA"
+LAVISH_COUNT="$TMP_ROOT/H082X-count"; LAVISH_SCRIPT="interrupt-082-extra"
+PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$H082XTRA" FM_LAVISH_POLL_RETRY_DELAY=1 \
+  "$ROOT/bin/fm-procevent-lavish.sh" arm "$H082XTRA_ART" >/dev/null
+wait_for "$H082XTRA/state/.wake-queue" \
+  || fail "a help-suffixed interruption plus a trailing line is captured and announced immediately"
+[ "$(cat "$LAVISH_COUNT")" = 1 ] \
+  || fail "a help-suffixed interruption plus a trailing line was retried instead of surfacing on its first poll"
+assert_contains "$(wake_payloads "$H082XTRA")" "procevent lavish $H082X_id 1" \
+  "the help-suffixed response with extra trailing content is captured and announced immediately"
+PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$H082XTRA" \
+  "$ROOT/bin/fm-procevent-lavish.sh" retire "$H082XTRA_ART" >/dev/null
+pass "a response that merely opens with the interruption shape plus a trailing line surfaces at once"
 
 # A different SERVER_ERROR is a genuine error, never a retry: no fail-open drift
 # from the one exact transient response this adapter owns.
