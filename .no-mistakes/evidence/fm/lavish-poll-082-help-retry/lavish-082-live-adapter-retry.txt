@@ -1,0 +1,21 @@
+# Live scenario: real lavish-axi 0.1.82, isolated server (port 45387, temp LAVISH_AXI_STATE_DIR, LAVISH_AXI_NO_OPEN=1)
+
+## 1. Raw CLI shape when the server is killed mid-poll (lavish-axi poll, exit 1):
+error: Lavish Editor poll response was interrupted
+code: SERVER_ERROR
+help[2]: Run `lavish-axi server --verbose` or inspect `~/.lavish-axi/server.log` (`LAVISH_AXI_STATE_DIR/server.log` when set) for server startup or crash diagnostics,Re-run the last `lavish-axi poll <html-file>` command after the server is healthy
+
+## 2. bin/fm-procevent-lavish.sh poll across a real mid-poll server kill (FM_LAVISH_POLL_RETRY_DELAY=1):
+server pid 87672 killed mid-poll at 09:31:12; adapter poll (pid 87381) kept running;
+retry's ensureServer restarted the server (new pid 92701) and re-attached agent-listener;
+captain then ended the session via POST /api/<key>/end.
+
+### adapter stdout (the only bytes the runner would capture - no interruption lines):
+session:
+  file: /private/var/folders/yp/3thln5vx79v797r_c__hkyph0000gn/T/fm-lavish-ilab.13zCPD/board.html
+  status: ended
+  ended_by: user
+next_step: The user ended this Lavish Editor session. Stop polling /private/var/folders/yp/3thln5vx79v797r_c__hkyph0000gn/T/fm-lavish-ilab.13zCPD/board.html - do not run `lavish-axi /private/var/folders/yp/3thln5vx79v797r_c__hkyph0000gn/T/fm-lavish-ilab.13zCPD/board.html` to reopen it. Deliver any remaining updates directly in this conversation instead. Only reopen with `lavish-axi /private/var/folders/yp/3thln5vx79v797r_c__hkyph0000gn/T/fm-lavish-ilab.13zCPD/board.html --reopen` if the user explicitly asks for further review or something genuinely important needs their visual attention.
+
+### adapter stderr (two long-poll banners: initial attempt + exactly one quiet retry):
+Long-polling banners: 2

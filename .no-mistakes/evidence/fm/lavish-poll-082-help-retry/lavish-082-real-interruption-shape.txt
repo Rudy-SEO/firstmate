@@ -1,0 +1,3 @@
+error: Lavish Editor poll response was interrupted
+code: SERVER_ERROR
+help[2]: Run `lavish-axi server --verbose` or inspect `~/.lavish-axi/server.log` (`LAVISH_AXI_STATE_DIR/server.log` when set) for server startup or crash diagnostics,Re-run the last `lavish-axi poll <html-file>` command after the server is healthy

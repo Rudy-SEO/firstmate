@@ -1,0 +1,8 @@
+# Adversarial probes: bin/fm-procevent-lavish.sh poll with a scripted lavish-axi replaying each shape (exit 1 each time), FM_LAVISH_POLL_RETRY_DELAY=1.
+# Expected for each: exactly 1 poll invocation (no quiet retry) and stdout byte-identical to the shape.
+shape=trunc polls=1 poll_exit=1 bytes_passed_through=yes -> OK surfaced-immediately
+shape=crlf polls=1 poll_exit=1 bytes_passed_through=yes -> OK surfaced-immediately
+shape=twohelp polls=1 poll_exit=1 bytes_passed_through=yes -> OK surfaced-immediately
+shape=bighelp polls=1 poll_exit=1 bytes_passed_through=yes -> OK surfaced-immediately
+shape=wsvariant polls=1 poll_exit=1 bytes_passed_through=yes -> OK surfaced-immediately
+shape=real-082-bytes polls=13 (expected 13: first poll + 12 bounded quiet retries) poll_exit=1 bytes_passed_through_after_bound=yes

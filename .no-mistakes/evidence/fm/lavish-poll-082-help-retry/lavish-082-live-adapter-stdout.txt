@@ -1,0 +1,5 @@
+session:
+  file: /private/var/folders/yp/3thln5vx79v797r_c__hkyph0000gn/T/fm-lavish-ilab.13zCPD/board.html
+  status: ended
+  ended_by: user
+next_step: The user ended this Lavish Editor session. Stop polling /private/var/folders/yp/3thln5vx79v797r_c__hkyph0000gn/T/fm-lavish-ilab.13zCPD/board.html - do not run `lavish-axi /private/var/folders/yp/3thln5vx79v797r_c__hkyph0000gn/T/fm-lavish-ilab.13zCPD/board.html` to reopen it. Deliver any remaining updates directly in this conversation instead. Only reopen with `lavish-axi /private/var/folders/yp/3thln5vx79v797r_c__hkyph0000gn/T/fm-lavish-ilab.13zCPD/board.html --reopen` if the user explicitly asks for further review or something genuinely important needs their visual attention.
