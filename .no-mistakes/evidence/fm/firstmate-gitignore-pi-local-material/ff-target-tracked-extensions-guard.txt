@@ -1,0 +1,21 @@
+== Scenario 3a: modified TRACKED .pi/extensions/fm-calm.ts still blocks the sync ==
+-- dirty_status: [ M .pi/extensions/fm-calm.ts]
+secondmate tracked-mod: skipped: dirty working tree
+FF_STATUS=skipped; HEAD=192c6a46 (unchanged)
+
+== Scenario 3b: NEW untracked .pi/extensions/local-new.ts is NOT ignored and still blocks ==
+-- dirty_status: [?? .pi/extensions/local-new.ts]
+secondmate tracked-new: skipped: dirty working tree
+FF_STATUS=skipped; HEAD=192c6a46 (unchanged)
+
+== Scenario 3c: ignore semantics at target commit ==
+ignored:      .pi/settings.json
+ignored:      .pi/skills/sample/SKILL.md
+not ignored:  .pi/extensions/fm-calm.ts
+not ignored:  .pi/extensions/local-new.ts
+-- tracked .pi files still tracked after fast-forward machinery: 17 files
+
+== Scenario 3d: clean home with only pi material + marker now fast-forwards ==
+-- dirty_status: []
+secondmate tracked-clean: updated 192c6a46..64fb77bb
+FF_STATUS=updated; HEAD=64fb77bb5f8589a8c4036a49d4b45627be2a2d5c

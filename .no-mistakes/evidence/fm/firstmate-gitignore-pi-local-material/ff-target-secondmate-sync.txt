@@ -1,0 +1,18 @@
+== Scenario 1: secondmate home at the fixed commit (192c6a46) carrying untracked .pi/settings.json + .pi/skills/ + .fm-secondmate-home marker ==
+-- git status --porcelain --ignored (home) --
+!! .fm-secondmate-home
+!! .pi/settings.json
+!! .pi/skills/
+-- dirty_status (guarded secondmate sync view): []
+secondmate postfix: updated 192c6a46..64fb77bb
+FF_STATUS=updated
+HEAD after: 64fb77bb5f8589a8c4036a49d4b45627be2a2d5c  (advanced to 64fb77bb5f8589a8c4036a49d4b45627be2a2d5c)
+pi material preserved after fast-forward:
+{"theme":"dark"}
+per-home skill
+
+== Scenario 2 (regression repro): same home state at the PRE-fix commit (6c5d364c, old .gitignore) ==
+-- dirty_status: [?? .pi/settings.json]
+secondmate prefix: skipped: dirty working tree
+FF_STATUS=skipped
+HEAD after: 6c5d364ce03aab83c2710cc0c6d3b15eddc9c23f  (unchanged = the ms-gates freeze this change fixes)
