@@ -6,6 +6,8 @@ scratchpad*
 .lavish/
 .fm-secondmate-home
 .fm-secondmate-parent
+.pi/settings.json
+.pi/skills/
 .DS_Store
 __pycache__/
 *.pyc
