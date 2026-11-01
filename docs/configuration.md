@@ -97,6 +97,7 @@ Each effective `FM_HOME` contains private operational directories.
 `projects/` holds local project clones.
 Firstmate reads these clones, but changes them only through the narrow guarded and concrete captain-approved exceptions in `AGENTS.md`.
 Untracked files and directories whose names begin with `scratchpad` are also gitignored, so temporary scratch does not make porcelain-based secondmate sync guards treat a home as dirty.
+On a home that runs Pi, the per-home operational material Pi accumulates at `.pi/settings.json` and `.pi/skills/` is gitignored for the same reason, while the shared `.pi/extensions/*.ts` files remain tracked.
 
 ### Format and lifecycle references
 
