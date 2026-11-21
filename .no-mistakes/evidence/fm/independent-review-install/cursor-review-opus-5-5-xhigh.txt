@@ -1,0 +1,67 @@
+Captain, the review is finished. The change is safe to merge in the narrow sense: it only adds one prose skill file and one inventory entry, and no existing script, test, or contract changes behavior. But the skill's own instructions have several real problems, so I'd fix them before merging rather than ship as-is.
+
+**What checks out**
+- The inventory entry is well-formed, uses an allowed audience, and is classified exactly once. That's all the audit checker requires, assuming the file is committed.
+- Changes under `.agents/skills/*/SKILL.md` already select the contract-test family that runs the audience test, so test selection covers it.
+- No other file references the new skill, and the `.claude/skills` copy appears to mirror `.agents/skills`.
+- This review appears to have run through the route the skill describes. File reads worked, but every shell command and every external-tool call was refused automatically, including `git status` and a harmless echo tool.
+
+**Issues, in priority order** (each rated for how often it would happen and how bad it would be, out of 10)
+
+1. **The reviewer can't see diffs or run anything** (verified in this run). How often: 9. How bad: 6.
+   - The brief template asks for a review of "the diff from base X to HEAD", but the reviewer can't run git, tests, or `bin/fm-doc-audience-check.sh`.
+   - Deleted or changed lines are invisible to it; it only sees the files as they are now.
+   - Fix: have the invoker paste the diff and the changed-file list into the brief, or save them to a file the reviewer can read. The invoker should also run the checks and include the results.
+
+2. **"Read-only by construction" is overstated** (verified from the repo's own Cursor notes). How often: 2. How bad: 8.
+   - `--trust` makes Cursor load the reviewed tree's `.cursor/hooks.json`, and through Cursor's compatibility layer `.claude/settings.json` too. Hooks run on the host, whatever mode the reviewer is in.
+   - Firstmate's own hooks protect themselves: session start stands down in task copies, and the lock check finds the reviewer's own Cursor process, so it can't take over the main session.
+   - A branch from an outside contributor could ship a hook that runs arbitrary commands.
+   - The no-writes guarantee actually comes from not passing `--force`/`--yolo`, and the skill never forbids them. Fleet Cursor launches normally use `--yolo`.
+   - Fix: forbid those flags, warn about hooks before reviewing untrusted trees, and drop the "can never modify" claim.
+
+3. **Conflicts with the delivery and messaging rules in `AGENTS.md`.** How often: 6. How bad: 5.
+   - The skill never says who runs it.
+   - Run by the first mate, a long review blocks it for many minutes, skips the scout path (no durable report, no backlog item, no monitoring), and the result lives only in conversation memory.
+   - Telling the agent to "return verbatim" when the captain types `/independent-review` clashes with section 9, which forbids relaying tool output verbatim into captain chat.
+   - The description's "or a QA crewmate review" can be read as a trigger that needs no explicit captain ask.
+
+4. **The front matter breaks the documented skill contract** (verified). How often: 3. How bad: 3.
+   - The README says every `.agents/skills/` skill carries `metadata.internal: true` so installers like `npx skills add` hide it. This one doesn't, and it's the only skill that leaves out `metadata` and `user-invocable`.
+   - `triggers: [user, model]` is used nowhere else and does nothing here. I couldn't confirm whether the Codex or Pi skill loaders accept the unknown key.
+   - It can be invoked as a slash command but isn't in the README's built-in skills table.
+
+5. **The credential guidance doesn't match the repo** (verified). How often: 5. How bad: 4.
+   - Firstmate reads `.env` one key at a time and never exports it, so `CURSOR_API_KEY` won't be in the environment.
+   - The key isn't documented in `docs/configuration.md`, which owns the `.env` settings.
+   - "Already provisioned fleet-wide" describes one private setup inside a shared template.
+   - The `--api-key` fallback invites putting a secret in process arguments.
+   - It doesn't mention an existing `cursor-agent login` session.
+
+6. **No guidance on timeouts or background runs** (not verified; depends on the calling tool). How often: 5. How bad: 4.
+   - A high-effort review can outlast a calling tool's shell time limit.
+   - The "retry once with the same brief" rule would just hit the same limit again.
+
+7. **Hardcoded "verified" model names.** How often: 4. How bad: 3.
+   - The repo's model-and-effort reference says model names come from live discovery, not fixed lists, and the Cursor reference recorded different Grok names.
+   - Partly offset by the instruction to confirm with `--list-models`. I couldn't confirm any of the listed names.
+
+8. **The reviewer inherits the first mate's role** (verified in this run). How often: 10 on Firstmate-repo reviews. How bad: 2.
+   - `AGENTS.md` loads as always-on rules, telling the reviewer it is the first mate, to run session start, and to delegate audits.
+   - Fix: state the reviewer's role in the brief.
+
+9. **Smaller items.**
+   - Several lines hold two to four sentences, against the repo's one-sentence-per-line rule (verified; no lint enforces it). How often: 10. How bad: 1.
+   - The retry rule appears in two sections, which leaves the allowed retry count unclear. How often: 3. How bad: 2.
+   - The binary is hardcoded as `cursor-agent`, while the repo's resolver also accepts the legacy `agent` name. How often: 2. How bad: 2.
+
+**What I couldn't validate**
+- I couldn't run the git diff, so I relied on the brief's description of scope plus the files as they stand now.
+- I couldn't run `bin/fm-doc-audience-check.sh`, its test, or `bin/fm-lint.sh`.
+- I couldn't check which model names `--list-models` returns.
+- I couldn't confirm whether Cursor's session-start hook fires in headless `--print` mode.
+- I couldn't confirm whether plan mode still blocks edits when `--yolo` is added.
+- No live record exists of the read-only and completion claims, and the skill adds no tests. Prose skills aren't byte-tested here, so that part is expected.
+
+**Recommendation:** fix the first five issues before merging. The blast radius is small because nothing that already exists changes behavior.
+exit=0
