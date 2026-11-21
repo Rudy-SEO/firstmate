@@ -2,7 +2,9 @@
 name: independent-review
 description: >-
   Launch an independent senior code review on an extra-high-reasoning model through the installed Cursor CLI (cursor-agent, read-only plan mode) and return the reviewer's full final response verbatim. Use for /independent-review, or when the captain explicitly requests an independent review deliverable or a QA crewmate review. Review only, never change files.
-triggers: [user, model]
+user-invocable: false
+metadata:
+  internal: true
 ---
 
 # Independent Review
