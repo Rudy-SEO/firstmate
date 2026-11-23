@@ -189,6 +189,7 @@ Claude and grok use the slash form shown here; codex uses the same names with `$
 | `/bearings`        | Generate a concise four-section chat digest from bounded fleet state, including registered remote-home ledgers and measured follow-up for owned contributions; use `/bearings file` to also replace today's dated report in `data/`, and add `include PRs` for live GitHub enrichment |
 | `/updatefirstmate` | Guardedly update the running firstmate and its secondmates - fast-forward, or reconcile a redundant post-squash-merge divergence - then persist and restart every live mate successfully left on the target commit - including already-current homes - with an honest re-read nudge only when restart cannot be proven |
 | `/stow`            | Sweep the session for uncaptured durable knowledge, persist the open work records this session knows are unfiled or now wrong, curate tiered startup memory with decay and cold archival, enforce each home's budget or surface the required decision, cascade to registered second mates, and report what is safe to reset |
+| `/independent-review` | Launch an independent senior code review on an extra-high-reasoning model through the installed Cursor CLI in read-only plan mode and return the reviewer's full final response verbatim plus the route and model used; it is review-only - it never edits files, grants merge authority, or substitutes for the selected delivery path's own rigor (see the [review procedure](.agents/skills/independent-review/SKILL.md)) |
 
 Bearings invocation examples:
 
